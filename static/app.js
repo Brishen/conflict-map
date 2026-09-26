@@ -33,6 +33,8 @@ const LAND = "#3f4048", HEAT = "#f2a33a";
 let COUNTRIES = {};          // iso3 -> {iso3, iso2, name, lat, lon}
 let STATE = null;            // last /api/state
 let selected = null;         // conflict id
+let selectedCountry = null;  // iso3 while the country view is open (all of a country's conflicts)
+let backCountry = null;      // the country view a conflict was opened from, so "back" returns there
 const $ = (s) => document.querySelector(s);
 
 /* ---------- helpers ---------- */
@@ -468,7 +470,8 @@ map.on("load", async () => {
     const inv = STATE ? STATE.conflicts.filter(c => c.parties.some(p => norm(p.country) === iso)).map(c => c.name) : [];
     tip.innerHTML = `<b>${esc(f.properties.NAME_EN || f.properties.NAME)}</b>` +
       (h ? `<br>${h.events} conflict events · ${h.mentions} mentions (${STATE.gdelt.hours}h)` : "<br>no GDELT conflict events") +
-      (inv.length ? `<br>involved in: ${esc(inv.join(", "))}` : "");
+      (inv.length ? `<br>involved in: ${esc(inv.join(", "))}` : "") +
+      (inv.length > 1 ? `<br><span style="opacity:.6">click to see all ${inv.length} and who is on which side</span>` : "");
     tip.hidden = false; tip.style.left = (e.point.x + 14) + "px"; tip.style.top = (e.point.y + 14) + "px";
   });
   map.on("mouseleave", "country-fill", () => { tip.hidden = true; });
@@ -479,15 +482,15 @@ map.on("load", async () => {
     const list = conflictsFor(iso);
     if (!list.length) return;                       // fall through to the map click (deselect)
     e.originalEvent._handled = true;
-    const idx = list.findIndex(c => c.id === selected);
-    select(list[(idx + 1) % list.length].id);      // clicking again cycles through that country's conflicts
+    if (list.length === 1) select(list[0].id); else selectCountry(iso);   // several conflicts: show them all
   });
 
   await loadCountries();
   restoreSettings();          // before the first data load so the 24h/48h window is right
   await load();
-  const shared = hashParam("c");
+  const shared = hashParam("c"), sharedCountry = hashParam("country");
   if (shared && STATE.conflicts.find(c => c.id === shared)) select(shared, { keepView: true });
+  else if (sharedCountry && conflictsFor(sharedCountry).length) selectCountry(sharedCountry);
   setInterval(load, 60000);
   // off by default: start the aircraft layers hidden until the toggle is ticked
   for (const id of ["aircraft", "aircraft-outline", "aircraft-trails", "aircraft-trails-casing"])
@@ -525,7 +528,9 @@ function render() {
   renderStrikes();
   renderIncidents();
   if (readerOpen) { /* leave the article on screen; the list/detail refresh underneath when it closes */ }
-  else if (selected && STATE.conflicts.find(c => c.id === selected)) renderDetail(); else { selected = null; renderList(); }
+  else if (selected && STATE.conflicts.find(c => c.id === selected)) renderDetail();
+  else if (selectedCountry && conflictsFor(selectedCountry).length) { selected = null; renderCountry(); }
+  else { selected = selectedCountry = null; renderList(); }
   applyInvolvement();
 }
 
@@ -560,7 +565,7 @@ function renderHeat() {
 
 const markerById = new Map();
 function renderMarkers() {
-  const live = new Set();
+  const live = new Set(), focus = focusIds();
   for (const c of STATE.conflicts) {
     const ep = c.epicenter; if (!ep || typeof ep.lat !== "number") continue;
     live.add(c.id);
@@ -580,9 +585,9 @@ function renderMarkers() {
     el.className = `mk st-${c.status in STATUS_COLOR ? c.status : "active"}`;
     el.title = `${c.name} (${c.status})`;
     el.setAttribute("aria-label", `${c.name}, ${c.status}, severity ${c.severity || 1} of 5`);
-    el.classList.toggle("dim", !!(selected && selected !== c.id));
+    el.classList.toggle("dim", !!(focus && !focus.has(c.id)));
     el.classList.toggle("selected", selected === c.id);
-    el.classList.toggle("hidden", !listMatch(c) && selected !== c.id);
+    el.classList.toggle("hidden", !listMatch(c) && !(focus && focus.has(c.id)));
     m.setLngLat([ep.lon, ep.lat]);
   }
   for (const [id, m] of markerById) if (!live.has(id)) { m.remove(); markerById.delete(id); }
@@ -591,11 +596,12 @@ function renderMarkers() {
 const markerSize = (c) => 8 + (c.severity || 1) * 3;
 function renderConflictLabels() {
   const src = map.getSource("conflict-labels"); if (!src) return;
+  const focus = focusIds();
   src.setData({ type: "FeatureCollection", features: STATE.conflicts
-    .filter(c => c.epicenter && typeof c.epicenter.lat === "number" && (listMatch(c) || c.id === selected))
+    .filter(c => c.epicenter && typeof c.epicenter.lat === "number" && (listMatch(c) || (focus && focus.has(c.id))))
     .map(c => ({ type: "Feature", geometry: { type: "Point", coordinates: [c.epicenter.lon, c.epicenter.lat] },
       properties: { name: c.name, off: (markerSize(c) / 2 + 5) / 11.5, rank: -(c.severity || 1) * 10 - (c.status === "escalating" ? 5 : 0),
-                    selected: c.id === selected, dim: !!(selected && selected !== c.id) } })) });
+                    selected: c.id === selected, dim: !!(focus && !focus.has(c.id)) } })) });
 }
 /* phones: only the selected conflict is labelled; the list is a swipe away */
 function syncConflictLabelVisibility() {
@@ -632,30 +638,48 @@ function renderGdeltArcs() {
   map.getSource("garcs").setData({ type: "FeatureCollection", features: feats });
 }
 
-function applyInvolvement() {
+/* the conflicts in focus: the selected one, or every conflict of the selected country; null = no focus */
+function focusIds() {
+  if (selected) return new Set([selected]);
+  if (selectedCountry) return new Set(conflictsFor(selectedCountry).map(c => c.id));
+  return null;
+}
+/* iso -> colour of every country highlighted on the map */
+function focusColors() {
+  const out = {};
   const c = STATE.conflicts.find(x => x.id === selected);
-  const sides = {};                                  // iso -> side
-  if (c) for (const p of c.parties) { const iso = norm(p.country); if (iso && !sides[iso]) sides[iso] = p.side || "other"; }
-  const isos = Object.keys(sides);
+  if (c) for (const p of c.parties) { const iso = norm(p.country); if (iso && !out[iso]) out[iso] = SIDE_COLOR[p.side] || SIDE_COLOR.other; }
+  else if (selectedCountry) {
+    for (const [iso, r] of Object.entries(countryRelations(selectedCountry).byIso)) out[iso] = REL_COLOR[r];
+    out[selectedCountry] = REL_COLOR.self;
+  }
+  return out;
+}
+function applyInvolvement() {
+  const focus = focusIds();
+  const colors = focusColors();
+  const isos = Object.keys(colors);
   const inList = ["in", ["get", "ADM0_A3"], ["literal", isos]];
   const sideColor = isos.length
-    ? ["match", ["get", "ADM0_A3"], ...isos.flatMap(i => [i, SIDE_COLOR[sides[i]] || SIDE_COLOR.other]), SIDE_COLOR.other]
+    ? ["match", ["get", "ADM0_A3"], ...isos.flatMap(i => [i, colors[i]]), SIDE_COLOR.other]
     : SIDE_COLOR.other;
   // every change goes through setPaintProperty so MapLibre cross-fades old and new values per feature
   map.setPaintProperty("country-fill", "fill-color", isos.length ? ["case", inList, sideColor, HEAT_COLOR_EXPR] : HEAT_COLOR_EXPR);
   map.setPaintProperty("country-fill", "fill-opacity", isos.length ? ["case", inList, 0.5, HEAT_OPACITY_EXPR] : HEAT_OPACITY_EXPR);
   map.setPaintProperty("country-involved", "line-color", sideColor);
   map.setPaintProperty("country-involved", "line-opacity", isos.length ? ["case", inList, 1, 0] : 0);
-  map.setPaintProperty("country-dim", "fill-opacity", c ? ["case", inList, 0, 0.78] : 0);
+  map.setPaintProperty("country-involved", "line-width", selectedCountry && !selected
+    ? ["case", ["==", ["get", "ADM0_A3"], selectedCountry], 3, 1.8] : 1.8);
+  map.setPaintProperty("country-dim", "fill-opacity", focus ? ["case", inList, 0, 0.78] : 0);
   // arcs and strikes of other conflicts fade instead of snapping
-  const own = (full, dimmed) => c ? ["case", ["==", ["get", "conflict"], c.id], full, dimmed] : full;
+  const own = (full, dimmed) => focus ? ["case", ["in", ["get", "conflict"], ["literal", [...focus]]], full, dimmed] : full;
   map.setPaintProperty("arcs", "line-opacity", own(0.85, 0.12));
   map.setPaintProperty("strike-paths", "line-opacity", own(0.3, 0.06));
   const isCountry = ["==", ["get", "precision"], "country"];
   map.setPaintProperty("strike-impacts", "circle-opacity", own(["case", isCountry, 0.08, 0.2], 0.04));
   map.setPaintProperty("strike-impacts", "circle-stroke-opacity", own(["case", isCountry, 0.9, 0], ["case", isCountry, 0.12, 0]));
   map.setPaintProperty("strike-icons", "icon-opacity", own(["case", isCountry, 0.6, 1], 0.15));
-  setFocus(!!c);
+  setFocus(!!focus);
   if (map.getLayer("incidents")) applyIncidentFocus();
 }
 
@@ -750,7 +774,7 @@ function renderDetail() {
   };
   const sideBlock = (k, lbl) => bySide[k].length ? `<div class="side"><div class="lbl">${lbl}</div>${bySide[k].map(party).join("")}</div>` : "";
   d.innerHTML = `
-    <button class="back">← all conflicts</button>
+    <button class="back">← ${backCountry ? esc(countryName(backCountry)) : "all conflicts"}</button>
     <h2>${esc(c.name)}</h2>
     <div class="meta"><span class="badge st-${esc(c.status)}">${esc(STATUS_LABEL[c.status] || c.status)}</span>${sevbar(c.severity)} <span>${esc(c.region || "")}</span></div>
     ${statTiles(c)}
@@ -771,7 +795,7 @@ function renderDetail() {
     <h3>Sources</h3>
     ${(c.sources || []).slice(0, 12).map(s => `<div class="src" tabindex="0" role="button" data-url="${esc(s.link)}" data-title="${esc(s.title)}" data-source="${esc(s.source)}">${esc(s.title)} <span class="s">— ${esc(s.source)}</span> <a href="${esc(s.link)}" target="_blank" title="open original">↗</a></div>`).join("")}
   `;
-  d.querySelector(".back").addEventListener("click", () => select(null));  d.querySelectorAll(".fig[data-url]").forEach(el => el.addEventListener("click", (ev) => {
+  d.querySelector(".back").addEventListener("click", goBack);  d.querySelectorAll(".fig[data-url]").forEach(el => el.addEventListener("click", (ev) => {
     if (ev.target.tagName === "A") return;
     openArticle(el.dataset.url, { title: el.dataset.title, source: el.dataset.source });
   }));
@@ -792,18 +816,78 @@ function renderDetail() {
   }));
 }
 
+function stopSpin() { if ($("#tg-rotate").checked) { $("#tg-rotate").checked = false; $("#tg-rotate").dispatchEvent(new Event("change")); } }
 function select(id, opts = {}) {
   const prev = selected, kbd = $("#panel").contains(document.activeElement) || document.activeElement?.classList.contains("mk");
-  selected = id;
-  if (id && $("#tg-rotate").checked) { $("#tg-rotate").checked = false; $("#tg-rotate").dispatchEvent(new Event("change")); }
+  selected = id; selectedCountry = null; backCountry = (id && opts.fromCountry) || null;
+  if (id) stopSpin();
   const c = STATE.conflicts.find(x => x.id === id);
-  setHashParam("c", c ? c.id : null);
+  setHashParam("c", c ? c.id : null); setHashParam("country", null);
   if (c && isMobile() && $("#panel").dataset.sheet === "min") setSheet("peek");
   if (c && c.epicenter && !opts.keepView) map.flyTo({ center: [c.epicenter.lon, c.epicenter.lat], zoom: Math.max(map.getZoom(), 3.2), speed: 0.55, curve: 1.3, essential: true, padding: sheetPadding() });
   renderMarkers(); renderArcs(); applyInvolvement(); renderStrikes();
   if (c) renderDetail(); else renderList();
   // keyboard users land on the new view: the back button, or the card they came from
   if (kbd) (c ? $("#detail .back") : prev && document.querySelector(`.card[data-id="${CSS.escape(prev)}"]`))?.focus({ preventScroll: !c });
+}
+
+/* back from a conflict: to the country view it was opened from, else to the list */
+function goBack() { if (backCountry) selectCountry(backCountry); else select(null); }
+
+/* ---------- country view: every conflict a country is part of, and who is with / against it ---------- */
+const REL_COLOR = { self: "#f2efe6", ally: SIDE_COLOR.A, enemy: SIDE_COLOR.B, other: SIDE_COLOR.other };
+const countryName = (iso) => ((COUNTRIES[iso] || {}).label || cname(iso)).replace("United States of America", "United States");
+/* per conflict: the country's own party entry and everyone else, sorted into same side / opposing / other;
+   byIso merges them over all conflicts (opposing beats same side beats other, for the map colour) */
+function countryRelations(iso) {
+  const rank = { enemy: 3, ally: 2, other: 1 }, byIso = {};
+  const perConflict = conflictsFor(iso).map(c => {
+    const mine = c.parties.filter(p => norm(p.country) === iso);
+    const me = mine.find(p => p.role === "combatant") || mine[0];
+    const mySide = me.side === "A" || me.side === "B" ? me.side : null;
+    const groups = { ally: [], enemy: [], other: [] };
+    for (const p of c.parties) {
+      const piso = norm(p.country);
+      if (piso === iso) continue;
+      const rel = !mySide || !(p.side === "A" || p.side === "B") ? "other" : p.side === mySide ? "ally" : "enemy";
+      groups[rel].push(p);
+      if (piso && (rank[rel] > (rank[byIso[piso]] || 0))) byIso[piso] = rel;
+    }
+    return { c, me, groups };
+  });
+  return { perConflict, byIso };
+}
+function selectCountry(iso) {
+  const kbd = $("#panel").contains(document.activeElement);
+  selected = null; selectedCountry = iso; backCountry = null;
+  stopSpin();
+  setHashParam("c", null); setHashParam("country", iso);
+  if (isMobile() && $("#panel").dataset.sheet === "min") setSheet("peek");
+  renderMarkers(); renderArcs(); applyInvolvement(); renderStrikes();
+  renderCountry();
+  if (kbd) $("#detail .back")?.focus({ preventScroll: true });
+}
+function renderCountry() {
+  const iso = selectedCountry, { perConflict } = countryRelations(iso);
+  $("#reader").hidden = true; readerOpen = false;
+  $("#list").hidden = true; $("#list-tools").hidden = true; const d = $("#detail"); d.hidden = false; reveal(d);
+  const who = (ps) => ps.map(p => { const i = norm(p.country); return `${i ? flag(i) + " " : ""}${esc(p.name)}`; }).join(", ");
+  const roleText = (me) => `${esc(me.role)}${me.side === "A" || me.side === "B" ? `, side ${esc(me.side)}` : ""}${me.note ? ` · ${esc(me.note)}` : ""}`;
+  const name = countryName(iso);
+  d.innerHTML = `
+    <button class="back">← all conflicts</button>
+    <h2>${flag(iso)} ${esc(name)}</h2>
+    <div class="meta">Involved in ${perConflict.length} conflicts</div>
+    <div class="rel-key"><span><i style="background:${REL_COLOR.ally}"></i>same side</span><span><i style="background:${REL_COLOR.enemy}"></i>opposing side</span><span><i style="background:${REL_COLOR.other}"></i>mediators &amp; others</span></div>
+    ${perConflict.map(({ c, me, groups }) => `<div class="card ccard" data-id="${esc(c.id)}" tabindex="0" role="button">
+      <div class="head"><span class="name">${esc(c.name)}</span>${sevbar(c.severity)}<span class="badge st-${esc(c.status)}">${esc(STATUS_LABEL[c.status] || c.status)}</span></div>
+      <div class="myrole">${esc(name)}: ${roleText(me)}</div>
+      ${groups.ally.length ? `<div class="rel ally"><b>with</b> ${who(groups.ally)}</div>` : ""}
+      ${groups.enemy.length ? `<div class="rel enemy"><b>against</b> ${who(groups.enemy)}</div>` : ""}
+      ${groups.other.length ? `<div class="rel other"><b>also</b> ${who(groups.other)}</div>` : ""}
+    </div>`).join("")}`;
+  d.querySelector(".back").addEventListener("click", () => select(null));
+  d.querySelectorAll(".ccard").forEach(el => el.addEventListener("click", () => select(el.dataset.id, { fromCountry: iso })));
 }
 
 /* ---------- remember settings across reloads (per browser) ---------- */
@@ -941,7 +1025,8 @@ function closeReader() {
   readerOpen = false; $("#reader").hidden = true;
   if (isMobile() && $("#panel").dataset.sheet === "full") setSheet("peek");
   $("#panel").scrollTop = 0;
-  if (selected && STATE.conflicts.find(c => c.id === selected)) renderDetail(); else renderList();
+  if (selected && STATE.conflicts.find(c => c.id === selected)) renderDetail();
+  else if (selectedCountry) renderCountry(); else renderList();
   if (kbd) ($("#detail:not([hidden]) .back") || $("#q"))?.focus({ preventScroll: true });
 }
 
@@ -1105,8 +1190,7 @@ function renderIncidents() {
   applyIncidentFocus();
 }
 function applyIncidentFocus() {
-  const c = STATE.conflicts.find(x => x.id === selected);
-  const isos = c ? [...new Set(c.parties.map(p => norm(p.country)).filter(Boolean))] : [];
+  const isos = Object.keys(focusColors());
   map.setFilter("incidents", isos.length ? ["in", ["get", "iso3"], ["literal", isos]] : null);
 }
 
@@ -1142,10 +1226,10 @@ function strikeHtml(p) {
 
 function renderStrikes() {
   const list = visibleStrikes();
-  const paths = [], impacts = [], items = [];
+  const paths = [], impacts = [], items = [], strikeFocus = focusIds();
   list.forEach((st, i) => {
     const color = WEAPON_COLOR[st.weapon] || WEAPON_COLOR.other;
-    const dim = !!(selected && selected !== st.conflict_id);   // projectiles of other conflicts stay hidden
+    const dim = !!(strikeFocus && !strikeFocus.has(st.conflict_id));   // projectiles of other conflicts stay hidden
     const to = [st.target_lon, st.target_lat];
     const r = 3 + Math.min(6, Math.log2(1 + (st.launched || 1)));
     impacts.push({ type: "Feature", geometry: { type: "Point", coordinates: to },
@@ -1346,7 +1430,7 @@ map.on("click", (e) => {
     toggleMenu(false); if (isMobile()) toggleLegend(false); return;   // first tap on the map just closes an open menu
   }
   if (e.originalEvent._handled || fuzzyTap(e)) return;
-  if (selected) select(null);
+  if (selected || selectedCountry) select(null);
 });
 
 /* ---------- desktop: drag the panel edge to resize ---------- */
@@ -1473,7 +1557,7 @@ document.addEventListener("keydown", (e) => {
   if (e.key === "Escape") {
     if (document.body.classList.contains("menu-open")) { toggleMenu(false); $("#menu-btn").focus(); return; }
     if (e.target.closest && e.target.closest("input, select")) return;
-    if (readerOpen) closeReader(); else if (selected) select(null);
+    if (readerOpen) closeReader(); else if (selected) goBack(); else if (selectedCountry) select(null);
     return;
   }
   // Enter / Space on a focusable list row acts like a click

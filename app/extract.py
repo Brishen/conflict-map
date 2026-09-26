@@ -37,7 +37,7 @@ Each conflict object:
   "epicenter": {{"lat": float, "lon": float, "label": "place"}},
   "parties": [
     {{"name": "Country or armed group", "country": "ISO3 code or null for non-state actors",
-      "side": "A" | "B" | "other", "role": "combatant" | "supporter" | "mediator" | "target",
+      "side": "A" | "B" | "other" (a supporter ALWAYS gets the side it supports; "other" is only for mediators and neutral parties), "role": "combatant" | "supporter" | "mediator" | "target",
       "note": "one short phrase, e.g. 'supplies drones', 'hosting talks'"}}
   ],
   "consequences": [
@@ -209,6 +209,27 @@ def same_conflict(a: dict, b: dict) -> bool:
     return bool(ta and tb) and len(ta & tb) / len(ta | tb) >= 0.5
 
 
+def fix_supporter_sides(c: dict) -> dict:
+    """Supporters filed under side "other": if the note names a combatant ("support to Israel",
+    "arming Ukraine"), put the supporter on that combatant's side."""
+    combatants = [p for p in c.get("parties") or [] if p.get("role") == "combatant" and p.get("side") in ("A", "B")]
+    for p in c.get("parties") or []:
+        if p.get("role") != "supporter" or p.get("side") in ("A", "B"):
+            continue
+        note = (p.get("note") or "").lower()
+        hits = set()
+        for q in combatants:
+            iso = geo.countries.iso3(q.get("country"))
+            rec = geo.countries.table()["iso3"].get(iso) or {} if iso else {}
+            names = [q.get("name") or "", rec.get("name") or "", rec.get("label") or ""]
+            words = {w.lower() for n in names for w in re.findall(r"[A-Za-z][A-Za-z\-]{3,}", n)} - STOP
+            if any(re.search(rf"\b{re.escape(w)}", note) for w in words):
+                hits.add(q["side"])
+        if len(hits) == 1:
+            p["side"] = hits.pop()
+    return c
+
+
 def _valid(c: dict) -> bool:
     return bool(c.get("id")) and bool(c.get("name")) and isinstance(c.get("parties"), list)
 
@@ -341,6 +362,7 @@ def run_batch(limit: int = ARTICLES_PER_BATCH) -> int:
         for c in conflicts:
             prev = by_id.get(c["id"], {})
             fix_epicenter(c)
+            fix_supporter_sides(c)
             # sources: keep unique links from cited article ids
             sources = {s["link"]: s for s in prev.get("sources", [])}
             for d in c.get("developments", []):
