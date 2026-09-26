@@ -225,7 +225,13 @@ async def refresh(skip_llm: bool = False):
 
 @app.get("/")
 def index():
-    return FileResponse(STATIC_DIR / "index.html")
+    # stamp the stylesheet / script URLs with their modification time, so a browser never pairs
+    # a new page with a heuristically cached old app.js or style.css after an update
+    html = (STATIC_DIR / "index.html").read_text()
+    for name in ("style.css", "app.js"):
+        v = int((STATIC_DIR / name).stat().st_mtime)
+        html = html.replace(f'"/static/{name}"', f'"/static/{name}?v={v}"')
+    return Response(html, media_type="text/html", headers={"Cache-Control": "no-cache"})
 
 
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
