@@ -28,7 +28,7 @@ EXCLUDE: ordinary crime, domestic politics, elections, protests without armed fi
 
 Each conflict object:
 {{
-  "id": "kebab-case-stable-id (reuse the existing id when updating; e.g. russia-ukraine, israel-gaza, sudan-civil-war)",
+  "id": "kebab-case-stable-id (when the conflict is already in EXISTING CONFLICTS you MUST reuse its exact id, never a variant; new ids only for conflicts not listed there; e.g. russia-ukraine, israel-gaza, sudan-civil-war)",
   "name": "short display name",
   "region": "short region label",
   "status": "active" | "escalating" | "de-escalating" | "ceasefire" | "frozen",
@@ -187,6 +187,28 @@ def _cites_ok(c: dict, a: dict) -> bool:
     return any(t in text for t in _conflict_terms(c))
 
 
+def _name_key(name: str | None) -> str:
+    return " ".join(re.findall(r"[a-z0-9]+", (name or "").lower()))
+
+
+def _combatant_isos(c: dict) -> frozenset:
+    return frozenset(filter(None, (geo.countries.iso3(p.get("country")) for p in c.get("parties") or []
+                                   if p.get("role") == "combatant")))
+
+
+def same_conflict(a: dict, b: dict) -> bool:
+    """The model sometimes files an existing conflict under a fresh id. Treat two records as one
+    when their names match, or when they have the same (2+) combatant states and similar names."""
+    na, nb = _name_key(a.get("name")), _name_key(b.get("name"))
+    if na and na == nb:
+        return True
+    ia, ib = _combatant_isos(a), _combatant_isos(b)
+    if len(ia) < 2 or ia != ib:
+        return False
+    ta, tb = set(na.split()) - STOP, set(nb.split()) - STOP
+    return bool(ta and tb) and len(ta & tb) / len(ta | tb) >= 0.5
+
+
 def _valid(c: dict) -> bool:
     return bool(c.get("id")) and bool(c.get("name")) and isinstance(c.get("parties"), list)
 
@@ -307,6 +329,12 @@ def run_batch(limit: int = ARTICLES_PER_BATCH) -> int:
         return 0
     conflicts = [c for c in result.get("conflicts", []) if _valid(c)]
     by_id = {c["id"]: c for c in existing}
+    for c in conflicts:
+        if c["id"] not in by_id:
+            match = next((e for e in existing if same_conflict(c, e)), None)
+            if match:
+                log.info("model filed %s under a new id %s; keeping %s", match["id"], c["id"], match["id"])
+                c["id"] = match["id"]
     art = {r["id"]: dict(r) for r in rows}
     n_strikes = 0
     with db() as con:

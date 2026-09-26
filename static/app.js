@@ -265,6 +265,22 @@ map.on("load", async () => {
     paint: { "text-color": "rgba(230,235,245,0.75)", "text-halo-color": "rgba(0,0,0,0.7)", "text-halo-width": 1.2,
              "text-opacity": ["interpolate", ["linear"], ["zoom"], 1.4, 0.6, 3, 0.9] },
   });
+  // conflict names: a symbol layer so labels that would overlap are dropped (most severe placed first)
+  // instead of piling up; the selected conflict's label is always shown and pushes the others aside
+  map.addSource("conflict-labels", { type: "geojson", data: { type: "FeatureCollection", features: [] } });
+  const conflictLabel = (id, extra) => map.addLayer({
+    id, type: "symbol", source: "conflict-labels", ...extra.filter && { filter: extra.filter },
+    layout: {
+      "text-field": ["get", "name"], "text-font": ["Open Sans Semibold"], "text-size": 11.5, "text-max-width": 16,
+      "text-variable-anchor": ["left", "right", "top", "bottom"], "text-radial-offset": ["get", "off"], "text-justify": "auto",
+      "text-padding": 3, "symbol-sort-key": ["get", "rank"], ...extra.layout,
+    },
+    paint: { "text-color": "#ffffff", "text-halo-color": "rgba(0,0,0,0.9)", "text-halo-width": 1.4,
+             "text-opacity": ["case", ["get", "dim"], 0.35, 1] },
+  });
+  conflictLabel("conflict-labels", { filter: ["!", ["get", "selected"]], layout: {} });
+  conflictLabel("conflict-label-selected", { filter: ["get", "selected"], layout: { "text-allow-overlap": true, "text-size": 13 } });
+  syncConflictLabelVisibility();
 
   // ---- strikes: paths, impacts, animated projectiles, impact flashes
   for (const id of ["strike-paths", "strike-impacts", "projectiles", "flashes"])
@@ -515,14 +531,12 @@ function render() {
 
 function renderStatus() {
   const m = STATE.meta, g = STATE.gdelt;
-  const parts = [];
-  parts.push(`${STATE.conflicts.length} conflicts`);
-  parts.push(`${m.sources} sources`);
-  parts.push(`${g.total.toLocaleString()} GDELT events / ${g.hours}h`);
-  parts.push(`extract ${ago(m.last_extract?.at)}`);
-  if (m.busy) parts.push(`⟳ refreshing (${m.unprocessed} articles queued)`);
-  else if (m.unprocessed) parts.push(`${m.unprocessed} articles queued`);
-  $("#status").textContent = parts.join(" · ");
+  const parts = [`<b>Updated ${esc(ago(m.last_extract?.at))}</b>`, `${STATE.conflicts.length} conflicts`, `${m.sources} news sources`];
+  if (m.busy) parts.push(m.unprocessed ? `refreshing now, ${m.unprocessed} articles to read` : "refreshing now");
+  else if (m.unprocessed && !m.serve_only) parts.push(`${m.unprocessed} articles queued`);
+  $("#status").innerHTML = parts.join(" · ");
+  $("#status").title = `Conflicts last re-read from the news ${m.last_extract?.at ? new Date(m.last_extract.at * 1000).toLocaleString() : "never"}.\n` +
+    `Background layer: ${g.total.toLocaleString()} GDELT conflict events in the last ${g.hours} h.`;
   $("#refresh").disabled = !!m.busy;
   $("#refresh").hidden = !!m.serve_only;
 }
@@ -552,24 +566,39 @@ function renderMarkers() {
     let m = markerById.get(c.id);
     if (!m) {
       const el = document.createElement("div");
-      el.className = "mk";
-      const lbl = document.createElement("span"); lbl.className = "mk-label"; el.appendChild(lbl);
+      el.className = "mk"; el.tabIndex = 0; el.setAttribute("role", "button");
       el.addEventListener("click", (e) => { e.stopPropagation(); select(c.id); });
+      el.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); select(c.id); } });
       m = new maplibregl.Marker({ element: el }).setLngLat([ep.lon, ep.lat]).addTo(map);
       markerById.set(c.id, m);
     }
     const el = m.getElement();
-    const size = 8 + (c.severity || 1) * 3;
+    const size = markerSize(c);
     el.style.width = el.style.height = size + "px";
-    el.style.background = el.style.color = STATUS_COLOR[c.status] || STATUS_COLOR.active;
-    el.title = c.name;
-    el.querySelector(".mk-label").textContent = c.name;
-    el.querySelector(".mk-label").style.left = (size + 2) + "px";
+    el.style.color = STATUS_COLOR[c.status] || STATUS_COLOR.active;
+    el.className = `mk st-${c.status in STATUS_COLOR ? c.status : "active"}`;
+    el.title = `${c.name} (${c.status})`;
+    el.setAttribute("aria-label", `${c.name}, ${c.status}, severity ${c.severity || 1} of 5`);
     el.classList.toggle("dim", !!(selected && selected !== c.id));
     el.classList.toggle("selected", selected === c.id);
+    el.classList.toggle("hidden", !listMatch(c) && selected !== c.id);
     m.setLngLat([ep.lon, ep.lat]);
   }
   for (const [id, m] of markerById) if (!live.has(id)) { m.remove(); markerById.delete(id); }
+  renderConflictLabels();
+}
+const markerSize = (c) => 8 + (c.severity || 1) * 3;
+function renderConflictLabels() {
+  const src = map.getSource("conflict-labels"); if (!src) return;
+  src.setData({ type: "FeatureCollection", features: STATE.conflicts
+    .filter(c => c.epicenter && typeof c.epicenter.lat === "number" && (listMatch(c) || c.id === selected))
+    .map(c => ({ type: "Feature", geometry: { type: "Point", coordinates: [c.epicenter.lon, c.epicenter.lat] },
+      properties: { name: c.name, off: (markerSize(c) / 2 + 5) / 11.5, rank: -(c.severity || 1) * 10 - (c.status === "escalating" ? 5 : 0),
+                    selected: c.id === selected, dim: !!(selected && selected !== c.id) } })) });
+}
+/* phones: only the selected conflict is labelled; the list is a swipe away */
+function syncConflictLabelVisibility() {
+  if (map.getLayer("conflict-labels")) map.setLayoutProperty("conflict-labels", "visibility", isMobile() ? "none" : "visible");
 }
 
 function renderArcs() {
@@ -644,29 +673,73 @@ const conflictsFor = (iso) => STATE.conflicts.filter(c => c.parties.some(p => no
 function sevbar(n) { return `<span class="sevbar">${[1, 2, 3, 4, 5].map(i => `<i class="${i <= n ? "on" : ""}"></i>`).join("")}</span>`; }
 
 function reveal(el) { el.classList.remove("reveal"); void el.offsetWidth; el.classList.add("reveal"); }
-function renderList() {
+/* list search / filters (the map markers and labels follow them too) */
+const LIST = { q: "", status: "" };
+const STATUS_LABEL = { escalating: "escalating", active: "active", "de-escalating": "easing", ceasefire: "ceasefire", frozen: "frozen" };
+function listMatch(c, ignoreStatus = false) {
+  if (!ignoreStatus && LIST.status && c.status !== LIST.status) return false;
+  const region = $("#region").value;
+  if (region && c.region !== region) return false;
+  if (!LIST.q) return true;
+  const hay = [c.name, c.region, ...c.parties.flatMap(p => [p.name, norm(p.country) && cname(norm(p.country))])].join(" ").toLowerCase();
+  return LIST.q.split(/\s+/).every(w => hay.includes(w));
+}
+function sortedConflicts() {
+  const by = $("#sort").value;
+  const cmp = by === "updated" ? (a, b) => (b.updated || 0) - (a.updated || 0)
+    : by === "attacks" ? (a, b) => nStrikes(b.id) - nStrikes(a.id) || (b.severity || 0) - (a.severity || 0)
+    : null;
+  const list = STATE.conflicts.slice();            // the server already orders by severity, then recency
+  return cmp ? list.sort(cmp) : list;
+}
+function renderListTools() {
+  const counts = {};
+  for (const c of STATE.conflicts) if (listMatch(c, true)) counts[c.status] = (counts[c.status] || 0) + 1;
+  const total = Object.values(counts).reduce((a, b) => a + b, 0);
+  const chip = (st, label, n) => `<button class="chip" data-status="${st}" aria-pressed="${LIST.status === st}">${label} <span class="n">${n}</span></button>`;
+  $("#status-chips").innerHTML = chip("", "All", total) +
+    Object.keys(STATUS_LABEL).filter(st => counts[st] || LIST.status === st).map(st => chip(st, STATUS_LABEL[st], counts[st] || 0)).join("");
+  const regions = [...new Set(STATE.conflicts.map(c => c.region).filter(Boolean))].sort();
+  const sel = $("#region"), cur = sel.value;
+  const want = ["", ...regions].join("|");
+  if (sel.dataset.opts !== want) {
+    sel.innerHTML = `<option value="">All regions</option>` + regions.map(r => `<option>${esc(r)}</option>`).join("");
+    sel.value = regions.includes(cur) ? cur : ""; sel.dataset.opts = want;
+  }
+}
+function applyListFilter() { renderList({ animate: false }); renderMarkers(); }
+
+function renderList({ animate = true } = {}) {
   $("#reader").hidden = true; readerOpen = false;
-  $("#detail").hidden = true; $("#list").hidden = false; reveal($("#list"));
+  $("#detail").hidden = true; $("#list").hidden = false; if (animate) reveal($("#list"));
+  $("#list").removeAttribute("aria-busy");
   if (!STATE.conflicts.length) {
+    $("#list-tools").hidden = true;
     $("#list").innerHTML = `<div class="empty">No conflicts extracted yet.<br><br>${STATE.meta.busy ? "The first refresh is running — the local model is reading the news feeds now." : "Press Refresh to fetch the feeds and run extraction."}</div>`;
     return;
   }
-  $("#list").innerHTML = STATE.conflicts.map(c => {
+  $("#list-tools").hidden = false;
+  renderListTools();
+  const shown = sortedConflicts().filter(c => listMatch(c));
+  $("#list").innerHTML = shown.map(c => {
     const combat = c.parties.filter(p => p.role === "combatant" && norm(p.country)).map(p => flag(norm(p.country)));
     const others = c.parties.filter(p => p.role !== "combatant" && norm(p.country)).map(p => flag(norm(p.country)));
-    return `<div class="card ${c.id === selected ? "selected" : ""}" data-id="${esc(c.id)}">
-      <div class="head"><span class="name">${esc(c.name)}</span>${sevbar(c.severity)}<span class="badge st-${esc(c.status)}">${esc(c.status)}</span></div>
-      <div class="region">${esc(c.region || "")} · updated ${ago(c.updated)}${nStrikes(c.id) ? ` · ${nStrikes(c.id)} strikes / 7d` : ""}</div>
+    return `<div class="card ${c.id === selected ? "selected" : ""}" data-id="${esc(c.id)}" tabindex="0" role="button">
+      <div class="head"><span class="name">${esc(c.name)}</span>${sevbar(c.severity)}<span class="badge st-${esc(c.status)}">${esc(STATUS_LABEL[c.status] || c.status)}</span></div>
+      <div class="region">${esc(c.region || "")} · updated ${ago(c.updated)}${nStrikes(c.id) ? ` · ${nStrikes(c.id)} attack${nStrikes(c.id) === 1 ? "" : "s"} / 7d` : ""}</div>
       <div class="flags">${[...new Set(combat)].join(" ")}<span style="opacity:.5"> ${[...new Set(others)].join(" ")}</span></div>
     </div>`;
-  }).join("");
+  }).join("") || `<div class="empty">No conflicts match these filters.<br><br><button id="clear-filters">Clear filters</button></div>`;
   document.querySelectorAll(".card").forEach(el => el.addEventListener("click", () => select(el.dataset.id)));
+  $("#clear-filters")?.addEventListener("click", () => {
+    LIST.q = ""; LIST.status = ""; $("#q").value = ""; $("#region").value = ""; applyListFilter(); $("#q").focus();
+  });
 }
 
 function renderDetail() {
   const c = STATE.conflicts.find(x => x.id === selected); if (!c) return renderList();
   $("#reader").hidden = true; readerOpen = false;
-  $("#list").hidden = true; const d = $("#detail"); d.hidden = false; reveal(d);
+  $("#list").hidden = true; $("#list-tools").hidden = true; const d = $("#detail"); d.hidden = false; reveal(d);
   const bySide = { A: [], B: [], other: [] };
   for (const p of c.parties) (bySide[p.side] || bySide.other).push(p);
   const party = (p) => {
@@ -676,9 +749,9 @@ function renderDetail() {
   };
   const sideBlock = (k, lbl) => bySide[k].length ? `<div class="side"><div class="lbl">${lbl}</div>${bySide[k].map(party).join("")}</div>` : "";
   d.innerHTML = `
-    <span class="back">← all conflicts</span>
+    <button class="back">← all conflicts</button>
     <h2>${esc(c.name)}</h2>
-    <div class="meta"><span class="badge st-${esc(c.status)}">${esc(c.status)}</span>${sevbar(c.severity)} <span>${esc(c.region || "")}</span></div>
+    <div class="meta"><span class="badge st-${esc(c.status)}">${esc(STATUS_LABEL[c.status] || c.status)}</span>${sevbar(c.severity)} <span>${esc(c.region || "")}</span></div>
     ${statTiles(c)}
     <p class="summary">${esc(c.summary)}</p>
     ${figureList(c)}
@@ -687,18 +760,17 @@ function renderDetail() {
     <h3>Consequences</h3>
     <div class="cons">${(c.consequences || []).map(x => `<div class="con"><span class="cat">${esc(x.category)}</span><span>${esc(x.text)}${(x.affects || []).length ? ` <span style="opacity:.6">${x.affects.map(a => flag(norm(a))).join(" ")}</span>` : ""}</span></div>`).join("") || "<div class='empty'>none recorded</div>"}</div>
     <h3>Latest developments</h3>
-    ${(c.developments || []).map(x => `<div class="dev" data-url="${esc((x.sources || [])[0] || "")}"><span class="date">${esc(x.date)}</span><span>${esc(x.text)}${(x.sources || []).map(u => ` <a href="${esc(u)}" target="_blank" title="open original">↗</a>`).join("")}</span></div>`).join("")}
+    ${(c.developments || []).map(x => `<div class="dev" data-url="${esc((x.sources || [])[0] || "")}"${(x.sources || []).length ? ` tabindex="0" role="button"` : ""}><span class="date">${esc(x.date)}</span><span>${esc(x.text)}${(x.sources || []).map(u => ` <a href="${esc(u)}" target="_blank" title="open original">↗</a>`).join("")}</span></div>`).join("")}
     <h3>Reported attacks (7 days)</h3>
-    ${conflictStrikes(c.id).map(st => `<div class="strike" data-id="${st.id}">
+    ${conflictStrikes(c.id).map(st => `<div class="strike" data-id="${st.id}" tabindex="0" role="button">
       <span class="date">${esc(st.date.slice(5).replace("-", "/"))}</span><span class="w">${weaponSvg(st.weapon)}</span>
       <span class="body"><span class="route">${(st.attacker && st.attacker !== "unknown") ? esc(st.attacker) + " → " : st.origin_name ? esc(st.origin_name) + " → " : ""}${esc(st.target_name)}</span><span class="prec">${esc(st.target_precision)}</span><br>
       <span class="meta">${esc(st.weapon)}${st.launched != null ? ` · ${st.launched} launched` : ""}${st.intercepted != null ? ` · ${st.intercepted} intercepted` : ""}${st.outcome ? ` · ${esc(st.outcome)}` : ""}</span></span>
     </div>`).join("") || "<div class='empty'>none reported in the feeds</div>"}
     <h3>Sources</h3>
-    ${(c.sources || []).slice(0, 12).map(s => `<div class="src" data-url="${esc(s.link)}" data-title="${esc(s.title)}" data-source="${esc(s.source)}">${esc(s.title)} <span class="s">— ${esc(s.source)}</span> <a href="${esc(s.link)}" target="_blank" title="open original">↗</a></div>`).join("")}
+    ${(c.sources || []).slice(0, 12).map(s => `<div class="src" tabindex="0" role="button" data-url="${esc(s.link)}" data-title="${esc(s.title)}" data-source="${esc(s.source)}">${esc(s.title)} <span class="s">— ${esc(s.source)}</span> <a href="${esc(s.link)}" target="_blank" title="open original">↗</a></div>`).join("")}
   `;
-  d.querySelector(".back").addEventListener("click", () => select(null));
-  d.querySelectorAll(".fig[data-url]").forEach(el => el.addEventListener("click", (ev) => {
+  d.querySelector(".back").addEventListener("click", () => select(null));  d.querySelectorAll(".fig[data-url]").forEach(el => el.addEventListener("click", (ev) => {
     if (ev.target.tagName === "A") return;
     openArticle(el.dataset.url, { title: el.dataset.title, source: el.dataset.source });
   }));
@@ -720,6 +792,7 @@ function renderDetail() {
 }
 
 function select(id, opts = {}) {
+  const prev = selected, kbd = $("#panel").contains(document.activeElement) || document.activeElement?.classList.contains("mk");
   selected = id;
   if (id && $("#tg-rotate").checked) { $("#tg-rotate").checked = false; $("#tg-rotate").dispatchEvent(new Event("change")); }
   const c = STATE.conflicts.find(x => x.id === id);
@@ -728,12 +801,14 @@ function select(id, opts = {}) {
   if (c && c.epicenter && !opts.keepView) map.flyTo({ center: [c.epicenter.lon, c.epicenter.lat], zoom: Math.max(map.getZoom(), 3.2), speed: 0.55, curve: 1.3, essential: true, padding: sheetPadding() });
   renderMarkers(); renderArcs(); applyInvolvement(); renderStrikes();
   if (c) renderDetail(); else renderList();
+  // keyboard users land on the new view: the back button, or the card they came from
+  if (kbd) (c ? $("#detail .back") : prev && document.querySelector(`.card[data-id="${CSS.escape(prev)}"]`))?.focus({ preventScroll: !c });
 }
 
 /* ---------- remember settings across reloads (per browser) ---------- */
 const SETTINGS_KEY = "conflictMapSettings";
 const SETTING_IDS = ["tg-globe", "tg-rotate", "tg-night", "tg-heat", "tg-arcs", "tg-gdelt-arcs", "tg-strikes",
-                     "tg-incidents", "tg-aircraft", "tg-ships", "window"];
+                     "tg-incidents", "tg-aircraft", "tg-ships", "window", "sort"];
 function saveSettings() {
   const out = {};
   for (const id of SETTING_IDS) { const el = document.getElementById(id); if (el) out[id] = el.type === "checkbox" ? el.checked : el.value; }
@@ -751,7 +826,7 @@ function restoreSettings() {
     const cur = el.type === "checkbox" ? el.checked : el.value;
     if (cur === saved[id]) continue;
     if (el.type === "checkbox") el.checked = saved[id]; else el.value = saved[id];
-    if (id !== "window") el.dispatchEvent(new Event("change"));   // apply it through the normal handler
+    if (id !== "window" && id !== "sort") el.dispatchEvent(new Event("change"));   // apply it through the normal handler (those two are read on load)
   }
 }
 
@@ -811,7 +886,7 @@ function figureList(c) {
   const rows = figs.slice(0, 8).map(f => {
     const who = sideName(f.side);
     const period = f.cumulative ? "since the start" : f.period;
-    return `<div class="fig" data-url="${esc(f.link || "")}" data-title="${esc(f.title || "")}" data-source="${esc(f.source || "")}">
+    return `<div class="fig" data-url="${esc(f.link || "")}"${f.link ? ` tabindex="0" role="button"` : ""} data-title="${esc(f.title || "")}" data-source="${esc(f.source || "")}">
       <div class="fighead"><span class="num">${fmtNum(f.value)}</span> <span class="what">${esc(FIG_LABEL[f.key] || f.key)}${who ? ` · ${esc(who)}` : ""}</span>
         <span class="per">${esc(period)}</span>${f.claimant_is_party ? `<span class="claim" title="Figure published by one of the warring parties">party claim</span>` : ""}</div>
       ${f.quote ? `<div class="quote">“${esc(f.quote)}”</div>` : ""}
@@ -832,13 +907,15 @@ async function openArticle(url, opts = {}) {
   $("#panel").scrollTop = 0;
   const alts = opts.alternatives && opts.alternatives.length > 1 ? opts.alternatives : null;
   const altHtml = alts ? `<div class="alt">${alts.map(u => `<div class="${u === url ? "on" : ""}" data-url="${esc(u)}">${esc(host(u))}</div>`).join("")}</div>` : "";
-  r.innerHTML = `<span class="back">← back</span>
+  $("#list-tools").hidden = true;
+  r.innerHTML = `<button class="back">← back</button>
     ${opts.context ? `<div class="meta" style="margin-bottom:8px">${opts.context}</div>` : ""}${altHtml}
     <div class="site">${esc(opts.source || host(url))}</div>
     <h2>${esc(opts.title || "")}</h2>
     <div class="loading">Loading article</div>`;
   r.querySelector(".back").addEventListener("click", closeReader);
-  r.querySelectorAll(".alt div").forEach(el => el.addEventListener("click", () => openArticle(el.dataset.url, opts)));
+  r.querySelectorAll(".alt div").forEach(el => { el.tabIndex = 0; el.setAttribute("role", "button"); el.addEventListener("click", () => openArticle(el.dataset.url, opts)); });
+  if ($("#panel").contains(document.activeElement)) r.querySelector(".back").focus({ preventScroll: true });
   let a;
   try { a = await (await fetch(`/api/article?url=${encodeURIComponent(url)}`)).json(); }
   catch (_) { a = { ok: false, error: "could not reach the server" }; }
@@ -859,10 +936,12 @@ async function openArticle(url, opts = {}) {
     `<div class="meta" style="margin-top:14px">Reader view · ${orig}</div>`;
 }
 function closeReader() {
+  const kbd = $("#panel").contains(document.activeElement);
   readerOpen = false; $("#reader").hidden = true;
   if (isMobile() && $("#panel").dataset.sheet === "full") setSheet("peek");
   $("#panel").scrollTop = 0;
   if (selected && STATE.conflicts.find(c => c.id === selected)) renderDetail(); else renderList();
+  if (kbd) ($("#detail:not([hidden]) .back") || $("#q"))?.focus({ preventScroll: true });
 }
 
 function openStrikeFeature(f, lngLat) {
@@ -1262,8 +1341,8 @@ $("#refresh").addEventListener("click", async () => {
   setTimeout(load, 1500);
 });
 map.on("click", (e) => {
-  if (document.body.classList.contains("menu-open") || document.body.classList.contains("legend-open")) {
-    toggleMenu(false); toggleLegend(false); return;   // first tap on the map just closes an open menu
+  if (document.body.classList.contains("menu-open") || (isMobile() && document.body.classList.contains("legend-open"))) {
+    toggleMenu(false); if (isMobile()) toggleLegend(false); return;   // first tap on the map just closes an open menu
   }
   if (e.originalEvent._handled || fuzzyTap(e)) return;
   if (selected) select(null);
@@ -1293,19 +1372,61 @@ map.on("click", (e) => {
   handle.addEventListener("dblclick", () => { panel.style.width = ""; try { localStorage.removeItem("panelWidth"); } catch (_) {} });
 })();
 
-/* ---------- mobile: layers menu, legend, bottom sheet ---------- */
+/* ---------- layers menu, legend (on phones only one of them is open at a time), bottom sheet ---------- */
 function toggleMenu(on = !document.body.classList.contains("menu-open")) {
   document.body.classList.toggle("menu-open", on);
   $("#menu-btn").setAttribute("aria-expanded", on);
-  if (on) toggleLegend(false);
+  if (on && isMobile()) toggleLegend(false);
 }
-function toggleLegend(on = !document.body.classList.contains("legend-open")) {
+function toggleLegend(on = !document.body.classList.contains("legend-open"), remember = false) {
   document.body.classList.toggle("legend-open", on);
   $("#legend-btn").setAttribute("aria-expanded", on);
-  if (on) toggleMenu(false);
+  if (on && isMobile()) toggleMenu(false);
+  if (remember && !isMobile()) try { localStorage.setItem("legendOpen", on ? "1" : "0"); } catch (_) {}
+}
+/* the key starts open on desktop (until closed once) and closed on phones */
+function initialLegend() {
+  let pref = null; try { pref = localStorage.getItem("legendOpen"); } catch (_) {}
+  toggleLegend(!isMobile() && pref !== "0");
+}
+/* the key only lists what is on the map: rows for switched-off layers are hidden */
+function syncLegend() {
+  document.querySelectorAll("#legend [data-layer]").forEach(r => r.classList.toggle("off", !document.getElementById(r.dataset.layer).checked));
 }
 $("#menu-btn").addEventListener("click", () => toggleMenu());
-$("#legend-btn").addEventListener("click", () => toggleLegend());
+$("#legend-btn").addEventListener("click", () => toggleLegend(undefined, true));
+$("#controls").addEventListener("change", syncLegend);
+document.addEventListener("click", (e) => {       // click anywhere outside the layers popover closes it
+  if (document.body.classList.contains("menu-open") && !e.target.closest("#controls, #menu-btn, #map")) toggleMenu(false);
+});
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape") {
+    if (document.body.classList.contains("menu-open")) { toggleMenu(false); $("#menu-btn").focus(); return; }
+    if (e.target.closest && e.target.closest("input, select")) return;
+    if (readerOpen) closeReader(); else if (selected) select(null);
+    return;
+  }
+  // Enter / Space on a focusable list row acts like a click
+  if ((e.key === "Enter" || e.key === " ") && e.target.matches?.(".card, .src, .dev[role], .strike, .fig[role], .alt div")) {
+    e.preventDefault(); e.target.click();
+  }
+});
+initialLegend(); syncLegend();
+
+/* ---------- list search / filters ---------- */
+{
+  let t = null;
+  $("#q").addEventListener("input", () => {
+    clearTimeout(t);
+    t = setTimeout(() => { LIST.q = $("#q").value.trim().toLowerCase(); if (STATE) applyListFilter(); }, 120);
+  });
+  $("#status-chips").addEventListener("click", (e) => {
+    const b = e.target.closest(".chip"); if (!b) return;
+    LIST.status = b.dataset.status; if (STATE) applyListFilter();
+  });
+  $("#region").addEventListener("change", () => STATE && applyListFilter());
+  $("#sort").addEventListener("change", () => STATE && applyListFilter());
+}
 
 const SHEET = ["min", "peek", "full"];
 function setSheet(state) {
@@ -1336,7 +1457,7 @@ function sheetPadding() {
     setSheet(s === "min" ? "peek" : s === "peek" ? "full" : "min");
   });
 }
-mobileMQ.addEventListener("change", () => { toggleMenu(false); toggleLegend(false); map.setPadding(sheetPadding()); });
+mobileMQ.addEventListener("change", () => { toggleMenu(false); initialLegend(); syncConflictLabelVisibility(); map.setPadding(sheetPadding()); });
 if (isMobile() && !sharedView) map.setPadding(sheetPadding());   // start with the globe above the sheet
 $("#weapon-legend").innerHTML = [["missile", "missile"], ["drone", "drone"], ["airstrike", "airstrike"], ["bombing", "bombing"],
   ["artillery", "shelling"], ["ground", "ground"], ["naval", "naval"], ["other", "other"]]

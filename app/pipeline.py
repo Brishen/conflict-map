@@ -4,7 +4,7 @@ import sqlite3
 import subprocess
 import time
 
-from . import extract, feeds, gdelt
+from . import dedupe, extract, feeds, gdelt
 from . import stats as figures
 from .config import DATA_DIR, DB_PATH, PUSH_TARGET
 from .db import db, set_state
@@ -28,6 +28,7 @@ def refresh(skip_llm: bool = False, gdelt_files: int | None = None):
     if not skip_llm:
         try:
             stats["conflicts_updated"] = extract.run_all()
+            stats["duplicates_merged"] = dedupe.merge_duplicates()
             stats["figures_updated"] = figures.refresh()
         except Exception as e:  # noqa: BLE001
             log.exception("extract failed")

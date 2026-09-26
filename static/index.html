@@ -7,6 +7,7 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <title>Conflict Map</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 16 16%27%3E%3Ccircle cx=%278%27 cy=%278%27 r=%275%27 fill=%27%23d03b3b%27/%3E%3C/svg%3E">
 <link rel="stylesheet" href="/static/vendor/maplibre-gl.css">
 <link rel="stylesheet" href="/static/style.css">
 </head>
@@ -21,26 +22,39 @@
       <span>Contribute</span>
     </a>
   </div>
-  <button id="menu-btn" class="mobile-only" aria-expanded="false" aria-controls="controls" title="Layers &amp; settings">Layers</button>
-  <div class="controls" id="controls">
-    <label class="toggle"><input type="checkbox" id="tg-globe" checked> Globe</label>
-    <label class="toggle"><input type="checkbox" id="tg-rotate" checked> Spin</label>
-    <label class="toggle" title="Live day/night from the sun's position"><input type="checkbox" id="tg-night" checked> Day/night</label>
-    <label class="toggle"><input type="checkbox" id="tg-heat" checked> News heat</label>
-    <label class="toggle"><input type="checkbox" id="tg-arcs" checked> Support arcs</label>
-    <label class="toggle"><input type="checkbox" id="tg-gdelt-arcs"> GDELT actor links</label>
-    <label class="toggle"><input type="checkbox" id="tg-strikes" checked> Attacks</label>
-    <label class="toggle" title="GDELT press-reported fighting, shown from zoom 3"><input type="checkbox" id="tg-incidents" checked> Incidents</label>
-    <label class="toggle" title="Military aircraft broadcasting ADS-B, shown with a delay"><input type="checkbox" id="tg-aircraft" autocomplete="off"> Mil aircraft <span id="aircraft-count"></span></label>
-    <label class="toggle" title="Naval vessels broadcasting AIS, shown with a delay"><input type="checkbox" id="tg-ships" autocomplete="off"> Mil ships <span id="ships-count"></span></label>
-    <label class="toggle slider" title="Replay a single day of strikes"><input type="range" id="day" min="0" max="7" value="0"><span id="day-label">all 7 days</span></label>
-    <select id="window">
-      <option value="24">last 24h</option>
-      <option value="48" selected>last 48h</option>
-    </select>
-    <button id="refresh" title="Fetch feeds + GDELT and re-run extraction">Refresh</button>
-  </div>
   <div class="status" id="status">loading…</div>
+  <button id="menu-btn" aria-expanded="false" aria-controls="controls" title="Layers &amp; settings">
+    <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path fill="currentColor" d="M8 1 1 4.5 8 8l7-3.5L8 1Zm-5.6 6.2L1 7.9 8 11.4l7-3.5-1.4-.7L8 10 2.4 7.2Zm0 3.4L1 11.3 8 14.8l7-3.5-1.4-.7L8 13.4l-5.6-2.8Z"/></svg>
+    <span>Layers</span></button>
+  <div class="controls" id="controls" role="dialog" aria-label="Layers and settings">
+    <div class="grp">
+      <div class="grp-h">View</div>
+      <label class="toggle"><input type="checkbox" id="tg-globe" checked> Globe</label>
+      <label class="toggle"><input type="checkbox" id="tg-rotate" checked> Spin</label>
+      <label class="toggle" title="Live day/night from the sun's position"><input type="checkbox" id="tg-night" checked> Day/night</label>
+    </div>
+    <div class="grp">
+      <div class="grp-h">Data layers</div>
+      <label class="toggle" title="Countries and hotspots shaded by GDELT conflict-event mentions"><input type="checkbox" id="tg-heat" checked> News heat</label>
+      <label class="toggle" title="Dashed lines from each party's country to the conflict"><input type="checkbox" id="tg-arcs" checked> Support arcs</label>
+      <label class="toggle" title="Country pairs GDELT links through conflict events"><input type="checkbox" id="tg-gdelt-arcs"> GDELT actor links</label>
+      <label class="toggle" title="Located attacks extracted from the news, last 7 days"><input type="checkbox" id="tg-strikes" checked> Attacks</label>
+      <label class="toggle" title="GDELT press-reported fighting, shown from zoom 3"><input type="checkbox" id="tg-incidents" checked> Incidents</label>
+      <label class="toggle" title="Military aircraft broadcasting ADS-B, shown with a delay"><input type="checkbox" id="tg-aircraft" autocomplete="off"> Mil aircraft <span id="aircraft-count"></span></label>
+      <label class="toggle" title="Naval vessels broadcasting AIS, shown with a delay"><input type="checkbox" id="tg-ships" autocomplete="off"> Mil ships <span id="ships-count"></span></label>
+    </div>
+    <div class="grp">
+      <div class="grp-h">Time</div>
+      <label class="field" title="How far back the news heat, incidents and GDELT links reach">News window
+        <select id="window">
+          <option value="24">last 24 h</option>
+          <option value="48" selected>last 48 h</option>
+        </select></label>
+      <label class="field slider" title="Replay a single day of attacks">Attack replay
+        <span class="range"><input type="range" id="day" min="0" max="7" value="0"><span id="day-label">all 7 days</span></span></label>
+    </div>
+    <button id="refresh" title="Fetch feeds + GDELT and re-run extraction">Refresh data now</button>
+  </div>
 </header>
 
 <div id="main">
@@ -48,22 +62,38 @@
   <div id="panel-resizer" title="Drag to resize the panel · double-click to reset"></div>
   <aside id="panel" data-sheet="peek">
     <button id="sheet-handle" class="mobile-only" aria-label="Expand or collapse the panel"><span></span></button>
-    <div id="list"></div>
+    <div id="list-tools" hidden>
+      <input type="search" id="q" placeholder="Search conflicts, countries, groups" aria-label="Search conflicts" autocomplete="off">
+      <div class="chips" id="status-chips" role="group" aria-label="Filter by status"></div>
+      <div class="tools-row">
+        <select id="region" aria-label="Filter by region"><option value="">All regions</option></select>
+        <select id="sort" aria-label="Sort conflicts">
+          <option value="severity">Most severe</option>
+          <option value="updated">Recently updated</option>
+          <option value="attacks">Most attacks (7 days)</option>
+        </select>
+      </div>
+    </div>
+    <div id="list" aria-busy="true">
+      <div class="skel"><i></i><i></i><i></i></div><div class="skel"><i></i><i></i><i></i></div><div class="skel"><i></i><i></i><i></i></div>
+      <div class="skel"><i></i><i></i><i></i></div><div class="skel"><i></i><i></i><i></i></div><div class="skel"><i></i><i></i><i></i></div>
+    </div>
     <div id="detail" hidden></div>
     <div id="reader" hidden></div>
   </aside>
-  <button id="legend-btn" class="mobile-only" aria-expanded="false" title="Legend">Key</button>
-  <div id="legend">
+  <button id="legend-btn" aria-expanded="false" aria-controls="legend" title="Map key">Key</button>
+  <div id="legend" role="region" aria-label="Map key">
     <div class="row"><span class="sev s5"></span><span class="sev s3"></span><span class="sev s1"></span> conflict severity</div>
-    <div class="row"><span class="sw st-escalating"></span> escalating <span class="sw st-active"></span> active <span class="sw st-de-escalating"></span> easing <span class="sw st-ceasefire"></span> ceasefire</div>
-    <div class="row"><span class="ramp"></span> GDELT conflict-event mentions</div>
-    <div class="row"><span class="line a"></span> side A <span class="line b"></span> side B <span class="line other"></span> mediator</div>
-    <div class="row" id="weapon-legend"></div>
-    <div class="row"><span class="sw inc"></span> press-reported incident (GDELT, zoom in)</div>
-    <div class="row"><span class="plane" style="color:#5ec8e5">✈</span> tanker <span class="plane" style="color:#c792ff">✈</span> surveillance <span class="plane" style="color:#e6e4da">✈</span> transport <span class="plane" style="color:#ff5a5a">✈</span> combat <svg class="heli-ico" viewBox="0 0 48 48" width="12" height="12" style="color:#7ed67e;vertical-align:-1px" aria-hidden="true"><g stroke="currentColor" stroke-linecap="round" fill="currentColor"><ellipse cx="24" cy="20" rx="6" ry="9"/><path d="M24 27v15M19 42h10" stroke-width="3" fill="none"/><path d="M6 8l36 24M42 8L6 32" stroke-width="3" fill="none"/></g></svg> heli</div>
-    <div class="row"><svg viewBox="0 0 48 48" width="12" height="12" style="color:#8fd3ff;vertical-align:-1px" aria-hidden="true"><path fill="currentColor" d="M24 3l7 11v27l-7 4-7-4V14z"/></svg> naval vessel (AIS)</div>
-    <div class="row muted" id="aircraft-note">aircraft: public ADS-B, shown with a delay, only those broadcasting</div>
-    <div class="row muted">impacts are city-level; faded icon in a ring = country-level only</div>
+    <div class="row"><span class="mkk st-escalating"></span> escalating <span class="mkk st-active"></span> active <span class="mkk st-de-escalating"></span> easing <span class="mkk st-ceasefire"></span> ceasefire <span class="mkk st-frozen"></span> frozen</div>
+    <div class="row" data-layer="tg-heat"><span class="ramp"></span> GDELT conflict-event mentions</div>
+    <div class="row" data-layer="tg-arcs"><span class="line a"></span> side A <span class="line b"></span> side B <span class="line other"></span> mediator</div>
+    <div class="row" data-layer="tg-gdelt-arcs"><span class="line gd"></span> GDELT actor link</div>
+    <div class="row" data-layer="tg-strikes" id="weapon-legend"></div>
+    <div class="row" data-layer="tg-incidents"><span class="sw inc"></span> press-reported incident (GDELT, zoom in)</div>
+    <div class="row" data-layer="tg-aircraft"><span class="plane" style="color:#5ec8e5">✈</span> tanker <span class="plane" style="color:#c792ff">✈</span> surveillance <span class="plane" style="color:#e6e4da">✈</span> transport <span class="plane" style="color:#ff5a5a">✈</span> combat <svg class="heli-ico" viewBox="0 0 48 48" width="12" height="12" style="color:#7ed67e;vertical-align:-1px" aria-hidden="true"><g stroke="currentColor" stroke-linecap="round" fill="currentColor"><ellipse cx="24" cy="20" rx="6" ry="9"/><path d="M24 27v15M19 42h10" stroke-width="3" fill="none"/><path d="M6 8l36 24M42 8L6 32" stroke-width="3" fill="none"/></g></svg> heli</div>
+    <div class="row" data-layer="tg-ships"><svg viewBox="0 0 48 48" width="12" height="12" style="color:#8fd3ff;vertical-align:-1px" aria-hidden="true"><path fill="currentColor" d="M24 3l7 11v27l-7 4-7-4V14z"/></svg> naval vessel (AIS)</div>
+    <div class="row note" data-layer="tg-aircraft" id="aircraft-note">aircraft: public ADS-B, shown with a delay, only those broadcasting</div>
+    <div class="row note" data-layer="tg-strikes">attack icons sit on the city hit; faded icon in a ring = only the country is known</div>
   </div>
   <div id="tooltip" hidden></div>
 </div>
