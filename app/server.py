@@ -223,6 +223,29 @@ async def refresh(skip_llm: bool = False):
     return {"started": not _lock.locked()}
 
 
+# ---- who is here now: each open, visible tab pings with a random per-tab id; nothing else is kept
+PRESENCE_TTL = 70            # seconds without a ping before a tab stops counting (tabs ping every 25 s)
+_presence: dict[str, float] = {}
+
+
+@app.post("/api/presence")
+async def presence(request: Request):
+    try:
+        body = await request.json()
+    except Exception:  # noqa: BLE001
+        body = {}
+    sid = str(body.get("id") or "")[:40]
+    now = time.time()
+    for k in [k for k, t in _presence.items() if now - t > PRESENCE_TTL]:
+        _presence.pop(k, None)
+    if sid and len(sid) >= 8:
+        if body.get("leave"):
+            _presence.pop(sid, None)
+        elif sid in _presence or len(_presence) < 20000:   # cap so junk ids can't grow memory
+            _presence[sid] = now
+    return JSONResponse({"online": len(_presence)}, headers={"Cache-Control": "no-store"})
+
+
 @app.get("/")
 def index():
     # stamp the stylesheet / script URLs with their modification time, so a browser never pairs

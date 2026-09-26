@@ -59,6 +59,10 @@ button:hover { border-color: var(--ink-2); }
 button:disabled { opacity: .5; cursor: default; }
 .status { font-size: 12px; color: var(--muted); margin-left: auto; text-align: right; }
 .status b { color: var(--ink-2); font-weight: 500; }
+.status .online { color: var(--ink-2); white-space: nowrap; }
+.status .online i { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--st-ceasefire); margin-right: 5px; vertical-align: 1px;
+                    box-shadow: 0 0 0 0 rgba(12,163,12,.6); animation: online 2.4s infinite; }
+@keyframes online { 70% { box-shadow: 0 0 0 5px rgba(12,163,12,0); } 100% { box-shadow: 0 0 0 0 rgba(12,163,12,0); } }
 :focus-visible { outline: 2px solid var(--st-de-escalating); outline-offset: 2px; }
 .card:focus-visible, .src:focus-visible, .dev:focus-visible, .strike:focus-visible, .fig:focus-visible { outline-offset: -2px; }
 

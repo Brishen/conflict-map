@@ -532,6 +532,7 @@ function render() {
 function renderStatus() {
   const m = STATE.meta, g = STATE.gdelt;
   const parts = [`<b>Updated ${esc(ago(m.last_extract?.at))}</b>`, `${STATE.conflicts.length} conflicts`, `${m.sources} news sources`];
+  if (ONLINE) parts.unshift(`<span class="online" title="People with the map open right now (each open tab counts)"><i></i>${ONLINE} online</span>`);
   if (m.busy) parts.push(m.unprocessed ? `refreshing now, ${m.unprocessed} articles to read` : "refreshing now");
   else if (m.unprocessed && !m.serve_only) parts.push(`${m.unprocessed} articles queued`);
   $("#status").innerHTML = parts.join(" · ");
@@ -1371,6 +1372,24 @@ map.on("click", (e) => {
   handle.addEventListener("pointerup", stop); handle.addEventListener("pointercancel", stop);
   handle.addEventListener("dblclick", () => { panel.style.width = ""; try { localStorage.removeItem("panelWidth"); } catch (_) {} });
 })();
+
+/* ---------- presence: how many people have the map open (a random id per tab, nothing else) ---------- */
+let ONLINE = 0;
+const TAB_ID = (() => {
+  try { let id = sessionStorage.getItem("tabId"); if (!id) sessionStorage.setItem("tabId", id = crypto.randomUUID()); return id; }
+  catch (_) { return crypto.randomUUID(); }
+})();
+async function ping() {
+  if (document.hidden) return;
+  try {
+    const r = await (await fetch("/api/presence", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: TAB_ID }) })).json();
+    if (r.online !== ONLINE) { ONLINE = r.online; if (STATE) renderStatus(); }
+  } catch (_) {}
+}
+const leave = () => navigator.sendBeacon?.("/api/presence", new Blob([JSON.stringify({ id: TAB_ID, leave: true })], { type: "application/json" }));
+document.addEventListener("visibilitychange", () => document.hidden ? leave() : ping());
+window.addEventListener("pagehide", leave);
+ping(); setInterval(ping, 25000);
 
 /* ---------- layers menu, legend (on phones only one of them is open at a time), bottom sheet ---------- */
 function toggleMenu(on = !document.body.classList.contains("menu-open")) {
