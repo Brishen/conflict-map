@@ -48,11 +48,15 @@ def _stamps(hours: int):
         t -= timedelta(minutes=15)
 
 
+LOCAL_KEEP_HOURS = 24
+
+
 def _parse(stamp: str, raw: bytes):
+    """-> (material-conflict event rows, local-news rows: one city-located point per article of any kind)."""
     with zipfile.ZipFile(io.BytesIO(raw)) as z:
         name = z.namelist()[0]
         text = z.read(name).decode("utf-8", "replace")
-    rows = []
+    rows, local = [], {}
     for r in csv.reader(io.StringIO(text), delimiter="\t"):
         if len(r) < 61:
             continue
@@ -60,6 +64,17 @@ def _parse(stamp: str, raw: bytes):
             quad = int(r[29])
         except ValueError:
             continue
+        # local news: any event geocoded to a city (ActionGeo_Type 3 = US city, 4 = world city), keep the
+        # most-mentioned one per article; the URL slug has to be readable, it doubles as the headline
+        if r[51] in ("3", "4") and r[56] and r[57] and _slug_title(r[60]):
+            try:
+                cand = (r[60], int(datetime.strptime(r[59], "%Y%m%d%H%M%S").replace(tzinfo=timezone.utc).timestamp()),
+                        round(float(r[56]), 4), round(float(r[57]), 4), r[52] or None, r[53] or None,
+                        int(r[28]), quad, int(r[31]), float(r[34]))
+            except ValueError:
+                cand = None
+            if cand and (r[60] not in local or cand[8] > local[r[60]][8]):
+                local[r[60]] = cand
         if quad != 4:  # material conflict only
             continue
         try:
@@ -75,7 +90,20 @@ def _parse(stamp: str, raw: bytes):
             float(r[30]), int(r[31]), int(r[32]), float(r[34]),
             r[53] or None, r[52] or None, lat, lon, r[60],
         ))
-    return rows
+    return rows, list(local.values())
+
+
+def _slug_title(url: str) -> str | None:
+    """A headline from the URL slug ("/2026/09/26/man-stabbed-at-paddington-station" -> "Man stabbed at
+    paddington station"), or None when the URL has no readable words."""
+    path = re.sub(r"^https?://[^/]+", "", url or "").split("?")[0].rstrip("/")
+    best = max(path.split("/"), key=lambda seg: len(re.findall(r"[A-Za-z]{2,}", seg)), default="")
+    best = re.sub(r"\.(html?|php|aspx?|cms|ece|shtml)$", "", best, flags=re.I)
+    words = [w for w in re.split(r"[-_+]+", best) if w and not re.fullmatch(r"[0-9a-f]{6,}|\d+", w, flags=re.I)]
+    if len([w for w in words if re.fullmatch(r"[A-Za-z']{2,}", w)]) < 4:
+        return None
+    t = " ".join(words)
+    return t[:1].upper() + t[1:]
 
 
 def update(max_files: int | None = None):
@@ -101,13 +129,13 @@ def update(max_files: int | None = None):
                 age_h = (datetime.now(timezone.utc) - datetime.strptime(stamp, "%Y%m%d%H%M%S").replace(tzinfo=timezone.utc)).total_seconds() / 3600
                 if age_h < 3:
                     continue
-                rows = []
+                rows, local = [], []
             elif resp.status_code != 200:
                 log.warning("%s: HTTP %s", stamp, resp.status_code)
                 continue
             else:
                 try:
-                    rows = _parse(stamp, resp.content)
+                    rows, local = _parse(stamp, resp.content)
                 except Exception as e:  # noqa: BLE001
                     log.warning("%s: parse error %s", stamp, e)
                     continue
@@ -115,6 +143,8 @@ def update(max_files: int | None = None):
                 con.executemany(
                     "INSERT OR IGNORE INTO gdelt_events VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", rows
                 )
+                con.executemany("INSERT OR IGNORE INTO local_news VALUES (?,?,?,?,?,?,?,?,?,?)",
+                                [x for x in local if x[1] >= time.time() - LOCAL_KEEP_HOURS * 3600])
                 con.execute("INSERT OR REPLACE INTO gdelt_files VALUES (?,?,?)",
                             (stamp, int(time.time()), len(rows)))
             n += len(rows)
@@ -122,8 +152,37 @@ def update(max_files: int | None = None):
     cutoff = int(time.time()) - max(GDELT_WINDOW_HOURS, GDELT_BACKFILL_HOURS) * 3600 - 3600
     with db() as con:
         con.execute("DELETE FROM gdelt_events WHERE added < ?", (cutoff,))
+        con.execute("DELETE FROM local_news WHERE added < ?", (int(time.time()) - LOCAL_KEEP_HOURS * 3600,))
     log.info("stored %d conflict events", n)
     return n
+
+
+# CAMEO root code -> topic shown for a local news item
+def local_topic(root: int, quad: int) -> str:
+    if root in (18, 19, 20) or root == 17:
+        return "violence"
+    if root == 14:
+        return "protest"
+    if root in (15, 16, 13, 12, 11, 10):
+        return "tension"
+    if quad in (1, 2):
+        return "cooperation"
+    return "other"
+
+
+def local_news(w: float, s: float, e: float, n: float, limit: int = 400) -> list[dict]:
+    """Located articles of the last 24 h inside a bounding box (w > e means it crosses the antimeridian)."""
+    lon_sql = "(lon >= ? AND lon <= ?)" if w <= e else "(lon >= ? OR lon <= ?)"
+    try:
+        with db() as con:
+            rows = con.execute(
+                f"SELECT url, added, lat, lon, place, cc, root, quad, mentions FROM local_news "
+                f"WHERE lat BETWEEN ? AND ? AND {lon_sql} ORDER BY mentions DESC, added DESC LIMIT ?",
+                (s, n, w, e, limit)).fetchall()
+    except Exception:  # noqa: BLE001  (a viewer database pushed before this table existed)
+        return []
+    return [{"url": r["url"], "title": _slug_title(r["url"]), "t": r["added"], "lat": r["lat"], "lon": r["lon"],
+             "place": r["place"], "topic": local_topic(r["root"], r["quad"]), "m": r["mentions"]} for r in rows]
 
 
 def aggregate(hours: int = GDELT_WINDOW_HOURS) -> dict:

@@ -368,6 +368,35 @@ map.on("load", async () => {
     openIncidentFeature(e.features[0]);
   });
 
+  // ---- local news (optional): every located article of the last 24 h, loaded for the view when zoomed in
+  map.addSource("local-news", { type: "geojson", data: { type: "FeatureCollection", features: [] } });
+  // small squares, so they never read as the round GDELT incident dots
+  map.addImage("news-sq", (() => {
+    const n = 24, c = document.createElement("canvas"); c.width = c.height = n;
+    const g = c.getContext("2d"); g.fillStyle = "rgba(0,0,0,0.75)"; g.fillRect(4, 4, 16, 16); g.fillStyle = "#fff"; g.fillRect(6, 6, 12, 12);
+    return g.getImageData(0, 0, n, n);
+  })(), { pixelRatio: 2 });
+  map.addImage("news-sq-fill", (() => {
+    const n = 24, c = document.createElement("canvas"); c.width = c.height = n;
+    const g = c.getContext("2d"); g.fillStyle = "#fff"; g.fillRect(6, 6, 12, 12);
+    return g.getImageData(0, 0, n, n);
+  })(), { sdf: true, pixelRatio: 2 });
+  const sqSize = ["interpolate", ["linear"], ["zoom"], LOCAL_MINZOOM, ["+", 0.55, ["*", 0.08, ["get", "lm"]]], 9, ["+", 0.85, ["*", 0.15, ["get", "lm"]]]];
+  map.addLayer({ id: "local-news-outline", type: "symbol", source: "local-news", minzoom: LOCAL_MINZOOM,
+    layout: { visibility: "none", "icon-image": "news-sq", "icon-size": sqSize, "icon-allow-overlap": true, "icon-ignore-placement": true } }, "capital-dots");
+  map.addLayer({ id: "local-news", type: "symbol", source: "local-news", minzoom: LOCAL_MINZOOM,
+    layout: { visibility: "none", "icon-image": "news-sq-fill", "icon-size": sqSize, "icon-allow-overlap": true, "icon-ignore-placement": true },
+    paint: { "icon-color": ["match", ["get", "topic"], "violence", LOCAL_COLOR.violence, "protest", LOCAL_COLOR.tension, "tension", LOCAL_COLOR.tension, LOCAL_COLOR.other] },
+  }, "capital-dots");
+  map.on("mousemove", "local-news", (e) => {
+    const tip = $("#tooltip"); tip.innerHTML = localHtml(e.features[0].properties);
+    tip.hidden = false; tip.style.left = (e.point.x + 14) + "px"; tip.style.top = (e.point.y + 14) + "px";
+    map.getCanvas().style.cursor = "pointer";
+  });
+  map.on("mouseleave", "local-news", () => { $("#tooltip").hidden = true; map.getCanvas().style.cursor = ""; });
+  map.on("click", "local-news", (e) => { e.originalEvent._handled = true; openLocalFeature(e.features[0]); });
+  map.on("moveend", () => { clearTimeout(localTimer); localTimer = setTimeout(loadLocalNews, 350); });
+
   // ---- military aircraft (public ADS-B, served with a delay)
   map.addImage("plane", planeIcon(), { sdf: true, pixelRatio: 2 });
   map.addImage("plane-outline", planeIcon(true), { pixelRatio: 2 });
@@ -893,10 +922,12 @@ function renderCountry() {
 /* ---------- remember settings across reloads (per browser) ---------- */
 const SETTINGS_KEY = "conflictMapSettings";
 const SETTING_IDS = ["tg-globe", "tg-rotate", "tg-night", "tg-heat", "tg-arcs", "tg-gdelt-arcs", "tg-strikes",
-                     "tg-incidents", "tg-aircraft", "tg-ships", "window", "sort"];
+                     "tg-incidents", "tg-aircraft", "tg-ships", "tg-local", "window", "sort"];
+const SETTINGS_VERSION = 2;     // 2: spin off by default; a saved "spin on" from before was just the old default
 function saveSettings() {
   const out = {};
   for (const id of SETTING_IDS) { const el = document.getElementById(id); if (el) out[id] = el.type === "checkbox" ? el.checked : el.value; }
+  out.v = SETTINGS_VERSION;
   try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(out)); } catch (_) {}
 }
 function restoreSettings() {
@@ -907,7 +938,7 @@ function restoreSettings() {
     if (!el) continue;
     el.addEventListener("change", saveSettings);
     if (!saved || !(id in saved)) continue;
-    if (id === "tg-rotate" && sharedView) continue;           // a shared link keeps its own view still
+    if (id === "tg-rotate" && (sharedView || !(saved.v >= 2))) continue;   // shared links stay still; pre-v2 "on" was the old default
     const cur = el.type === "checkbox" ? el.checked : el.value;
     if (cur === saved[id]) continue;
     if (el.type === "checkbox") el.checked = saved[id]; else el.value = saved[id];
@@ -1045,13 +1076,14 @@ function openIncidentFeature(f) {
 function fuzzyTap(e) {
   if (!coarseMQ.matches || e.originalEvent._handled) return false;
   const r = 14, { x, y } = e.point;
-  const layers = ["aircraft", "strike-impacts", "incidents"].filter(id => map.getLayer(id) && map.getLayoutProperty(id, "visibility") !== "none");
+  const layers = ["aircraft", "strike-impacts", "incidents", "local-news"].filter(id => map.getLayer(id) && map.getLayoutProperty(id, "visibility") !== "none");
   const hits = map.queryRenderedFeatures([[x - r, y - r], [x + r, y + r]], { layers });
   if (!hits.length) return false;
   e.originalEvent._handled = true;
   const f = hits.find(h => h.layer.id === "aircraft") || hits.find(h => h.layer.id === "strike-impacts") || hits[0];
   if (f.layer.id === "aircraft") openAircraftFeature(f);
-  else if (f.layer.id === "strike-impacts") openStrikeFeature(f, e.lngLat); else openIncidentFeature(f);
+  else if (f.layer.id === "strike-impacts") openStrikeFeature(f, e.lngLat);
+  else if (f.layer.id === "local-news") openLocalFeature(f); else openIncidentFeature(f);
   return true;
 }
 
@@ -1193,6 +1225,38 @@ function applyIncidentFocus() {
   const isos = Object.keys(focusColors());
   map.setFilter("incidents", isos.length ? ["in", ["get", "iso3"], ["literal", isos]] : null);
 }
+
+/* ---------- local news ---------- */
+const LOCAL_MINZOOM = 4;
+const LOCAL_COLOR = { violence: "#ff6b6b", tension: "#f2c14e", other: "#9fb4d9" };
+let localTimer = null, localSeq = 0;
+async function loadLocalNews() {
+  const on = $("#tg-local").checked, zoomed = map.getZoom() >= LOCAL_MINZOOM;
+  $("#local-hint").textContent = on && !zoomed ? "(zoom in)" : "";
+  if (!on || !zoomed || document.hidden) return;
+  const b = map.getBounds(), seq = ++localSeq;
+  const q = [b.getWest(), b.getSouth(), b.getEast(), b.getNorth()].map(v => v.toFixed(3));
+  if (+q[2] - +q[0] >= 360) { q[0] = "-180"; q[2] = "180"; }
+  const wrap = (v) => ((+v + 540) % 360) - 180;                       // the globe can report longitudes past ±180
+  let items = [];
+  try { items = (await (await fetch(`/api/local-news?w=${wrap(q[0])}&s=${q[1]}&e=${wrap(q[2])}&n=${q[3]}`)).json()).items || []; } catch (_) { return; }
+  if (seq !== localSeq) return;
+  $("#local-hint").textContent = `(${items.length}${items.length >= 400 ? "+" : ""})`;
+  map.getSource("local-news").setData({ type: "FeatureCollection", features: items.map(i => ({
+    type: "Feature", geometry: { type: "Point", coordinates: [i.lon, i.lat] },
+    properties: { ...i, lm: Math.log2(1 + (i.m || 1)) } })) });
+}
+function localHtml(p) {
+  return `<b>${esc(p.title)}</b><br>${esc(p.place || "")} · ${esc(ago(p.t))}<br><span style="opacity:.6">${esc(host(p.url))} · click to read</span>`;
+}
+function openLocalFeature(f) {
+  const p = f.properties;
+  openArticle(p.url, { title: p.title, source: host(p.url), context: `<b>${esc(p.place || "")}</b> · ${esc(ago(p.t))} · <span style="opacity:.7">placed on the map by GDELT, automatically</span>` });
+}
+$("#tg-local").addEventListener("change", (e) => {
+  for (const id of ["local-news", "local-news-outline"]) map.setLayoutProperty(id, "visibility", e.target.checked ? "visible" : "none");
+  loadLocalNews();
+});
 
 /* ---------- strikes ---------- */
 let strikeAnim = null;      // {items:[{path, color, id, hasPath}], start}

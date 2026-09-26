@@ -47,6 +47,11 @@ CREATE TABLE IF NOT EXISTS strikes (
 );
 CREATE INDEX IF NOT EXISTS idx_strikes_date ON strikes(date);
 CREATE TABLE IF NOT EXISTS state (key TEXT PRIMARY KEY, value TEXT);
+CREATE TABLE IF NOT EXISTS local_news (
+    url TEXT PRIMARY KEY, added INTEGER, lat REAL, lon REAL, place TEXT, cc TEXT,
+    root INTEGER, quad INTEGER, mentions INTEGER, tone REAL
+);
+CREATE INDEX IF NOT EXISTS idx_local_news_geo ON local_news(lat, lon);
 """
 
 

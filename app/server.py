@@ -223,6 +223,12 @@ async def refresh(skip_llm: bool = False):
     return {"started": not _lock.locked()}
 
 
+@app.get("/api/local-news")
+async def local_news(w: float, s: float, e: float, n: float):
+    items = await asyncio.to_thread(gdelt.local_news, w, s, e, n)
+    return JSONResponse({"items": items}, headers={"Cache-Control": "max-age=60"})
+
+
 @app.get("/api/live-tv")
 async def live_tv():
     data = await asyncio.to_thread(livetv.channels)

@@ -239,6 +239,9 @@ body.legend-open #legend { display: flex; }
 .sw.st-escalating { background: var(--st-escalating);} .sw.st-active { background: var(--st-active);} .sw.st-de-escalating { background: var(--st-de-escalating);} .sw.st-ceasefire { background: var(--st-ceasefire);}
 .ramp { width: 60px; height: 8px; border-radius: 2px; background: linear-gradient(90deg, var(--land), var(--heat)); }
 .line { width: 22px; height: 2px; display: inline-block; }
+.ln { display: inline-block; width: 8px; height: 8px; border-radius: 2px; border: 1px solid rgba(0,0,0,.6); }
+.ln.v { background: #ff6b6b; } .ln.t { background: #f2c14e; } .ln.o { background: #9fb4d9; }
+.toggle .hint { color: var(--muted); font-size: 11.5px; }
 .line.gd { background: #c3c2b7; opacity: .6; } .line.a { background: var(--side-a);} .line.b { background: var(--side-b);} .line.other { background: var(--side-other);}
 
 #tooltip { position: absolute; pointer-events: none; background: rgba(26,26,25,.95); border: 1px solid var(--border); border-radius: 6px; padding: 6px 9px; font-size: 12px; color: var(--ink-2); z-index: 5; max-width: 260px; }
