@@ -43,11 +43,13 @@ FEEDS = {
     "BBC Africa": "https://feeds.bbci.co.uk/news/world/africa/rss.xml",
     "BBC Europe": "https://feeds.bbci.co.uk/news/world/europe/rss.xml",
     "BBC Asia": "https://feeds.bbci.co.uk/news/world/asia/rss.xml",
+    "BBC Latin America": "https://feeds.bbci.co.uk/news/world/latin_america/rss.xml",
     "Al Jazeera": "https://www.aljazeera.com/xml/rss/all.xml",
     "Guardian World": "https://www.theguardian.com/world/rss",
     "Guardian Ukraine": "https://www.theguardian.com/world/ukraine/rss",
     "Guardian Middle East": "https://www.theguardian.com/world/middleeast/rss",
     "Guardian Africa": "https://www.theguardian.com/world/africa/rss",
+    "Guardian Americas": "https://www.theguardian.com/world/americas/rss",
     "NYT World": "https://rss.nytimes.com/services/xml/rss/nyt/World.xml",
     "Washington Post World": "https://feeds.washingtonpost.com/rss/world",
     "CNN World": "http://rss.cnn.com/rss/edition_world.rss",
@@ -62,6 +64,7 @@ FEEDS = {
     "France 24 Middle East": "https://www.france24.com/en/middle-east/rss",
     "France 24 Europe": "https://www.france24.com/en/europe/rss",
     "France 24 Asia": "https://www.france24.com/en/asia-pacific/rss",
+    "France 24 Americas": "https://www.france24.com/en/americas/rss",
     "Euronews": "https://www.euronews.com/rss",
     "Politico Europe": "https://www.politico.eu/feed/",
     "Voice of America": "https://www.voanews.com/api/zq$omekvi_",
@@ -70,6 +73,7 @@ FEEDS = {
     # Google News keyword feeds (aggregate many outlets incl. Reuters/AP)
     "Google News: conflict": "https://news.google.com/rss/search?q=airstrike+OR+missile+OR+%22drone+attack%22+OR+offensive+OR+ceasefire&hl=en-US&gl=US&ceid=US:en",
     "Google News: Reuters": "https://news.google.com/rss/search?q=site:reuters.com+(war+OR+strikes+OR+attack)&hl=en-US&gl=US&ceid=US:en",
+    "Google News: Latin America": "https://news.google.com/rss/search?q=(Colombia+OR+Haiti+OR+Ecuador+OR+Mexico+OR+Venezuela)+(ELN+OR+guerrilla+OR+%22armed+group%22+OR+cartel+OR+gang+OR+dissidents+OR+militants)&hl=en-US&gl=US&ceid=US:en",
     "Google News: AP": "https://news.google.com/rss/search?q=site:apnews.com+(war+OR+strikes+OR+attack)&hl=en-US&gl=US&ceid=US:en",
     # regional
     "Kyiv Independent": "https://kyivindependent.com/news-archive/rss/",
@@ -90,6 +94,8 @@ FEEDS = {
     "Japan Times": "https://www.japantimes.co.jp/feed/",
     "Yonhap": "https://en.yna.co.kr/RSS/news.xml",
     "The Diplomat": "https://thediplomat.com/feed/",
+    "InSight Crime": "https://insightcrime.org/feed/",
+    "Colombia Reports": "https://colombiareports.com/feed/",
     # defence / analysis
     "Defense One": "https://www.defenseone.com/rss/all/",
     "Breaking Defense": "https://breakingdefense.com/feed/",
@@ -110,6 +116,7 @@ RELEVANCE_TERMS = [
     "conflict", "combat", "weapon", "nuclear", "hezbollah", "hamas", "houthi", "taliban", "isis",
     "islamic state", "wagner", "kremlin", "nato", "idf", "peacekeep", "junta", "armed", "casualt",
     "massacre", "genocide", "gaza", "ukraine", "sudan", "yemen", "myanmar", "sahel", "congo", "somalia",
+    "guerrill", "cartel", "gang", "paramilitar", "farc", "dissident", "haiti",
 ]
 
 # Military ships (AIS via aisstream.io, free API key: https://aisstream.io). Off without a key.

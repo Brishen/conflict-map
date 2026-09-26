@@ -81,6 +81,31 @@ def point_in_country(lon: float, lat: float, iso3: str, pad: float = 1.5) -> boo
     return min(xs) - pad <= lon <= max(xs) + pad and min(ys) - pad <= lat <= max(ys) + pad
 
 
+def country_at(lon: float, lat: float) -> str | None:
+    """ISO3 of the country whose polygon contains the point (strict test, no padding)."""
+    for iso3, geom in _countries_geo().items():
+        polys = geom["coordinates"] if geom["type"] == "MultiPolygon" else [geom["coordinates"]]
+        if any(_in_ring(lon, lat, poly[0]) for poly in polys):
+            return iso3
+    return None
+
+
+def toward(iso3: str, lat: float, lon: float) -> tuple[float, float] | None:
+    """The gazetteer place of `iso3` closest to (lat, lon): where a launch "from Russia" at Kharkiv plausibly
+    starts (Belgorod), instead of the country centroid deep in Siberia."""
+    import math
+    best, bd = None, 1e18
+    k = math.cos(math.radians(lat))
+    for recs in _places().values():
+        for c in recs:
+            if c[0] != iso3:
+                continue
+            d = (c[1] - lat) ** 2 + ((c[2] - lon) * k) ** 2
+            if d < bd:
+                best, bd = (c[1], c[2]), d
+    return best
+
+
 def resolve(place: str | None, country: str | None, lat=None, lon=None) -> dict | None:
     """Return {name, lat, lon, country, precision} or None. precision: city | approx | country."""
     iso3 = countries.iso3(country) if country else None
@@ -102,8 +127,10 @@ def resolve(place: str | None, country: str | None, lat=None, lon=None) -> dict 
                 if cands:
                     break
         if iso3:
+            # a same-named town in another country is only believable right next to the named one
+            # (Crimea filed under UKR, border towns); "Mocha, YEM" must never become Moca in the Dominican Republic
             same = [c for c in cands if c[0] == iso3]
-            cands = same or ([] if len(n) < 5 else cands)
+            cands = same or [c for c in cands if point_in_country(c[2], c[1], iso3, pad=1.0)]
         if cands:
             c = max(cands, key=lambda r: r[3])
             return {"name": name, "lat": c[1], "lon": c[2], "country": c[0], "precision": "city"}

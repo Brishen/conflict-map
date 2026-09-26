@@ -2,6 +2,7 @@
 import csv
 import io
 import logging
+import re
 import time
 import zipfile
 from datetime import datetime, timedelta, timezone
@@ -13,6 +14,27 @@ from .db import db
 
 log = logging.getLogger("gdelt")
 BASE = "https://data.gdeltproject.org/gdeltv2/"
+
+
+# GDELT's machine coding files plenty of non-violent stories as "fight" (a debate, a fire service deal,
+# a hurricane). For the incident dots, an article whose URL slug is readable must name some violence;
+# URLs without words (numeric ids) must have wider coverage instead.
+VIOLENT = re.compile(r"^(kill|attack|strike|airstrik|drone|missil|rocket|shell|bomb|blast|explos|clash|fighting|fighter|"
+                     r"gun|shoot|shot|sniper|stab|troop|soldier|army|armies|milit|rebel|insurg|terror|jihad|massacr|"
+                     r"hostage|kidnap|abduct|raid|ambush|assault|offensiv|battl|siege|invad|invasion|war|wars|warfare|"
+                     r"casualt|wounded|dead|deadly|violen|mortar|artiller|grenade|genocid|ethnic|cleans|riot|"
+                     r"isis|hamas|hezbollah|houthi|taliban|wagner|rsf|idf|m23|gang|cartel|guerrill|paramilitar|"
+                     r"frontline|ceasefir|firefight|execut|behead|torch|burn|loot|mob|lynch|murder)")
+SLUG_STOP = {"news", "world", "article", "story", "stories", "amp", "html", "www", "com", "local", "national",
+             "international", "politics", "the", "and", "for", "with", "from", "that", "this", "after", "over"}
+
+
+def _plausible_incident(url: str, mentions: int, sources: int) -> bool:
+    path = re.sub(r"^https?://[^/]+", "", url or "").lower()
+    words = [w for w in re.findall(r"[a-z]{3,}", path) if w not in SLUG_STOP]
+    if len(words) >= 4:
+        return any(VIOLENT.match(w) for w in words)
+    return (mentions or 0) >= 5 and (sources or 0) >= 2
 
 
 def _stamps(hours: int):
@@ -129,8 +151,12 @@ def aggregate(hours: int = GDELT_WINDOW_HOURS) -> dict:
         # located violent incidents (fight / mass violence) aggregated per place; the most-mentioned row supplies the source
         agg: dict = {}
         for r in con.execute(
-            "SELECT geo_name, geo_cc, ROUND(lat,2) la, ROUND(lon,2) lo, mentions, root, day, url FROM gdelt_events "
-            "WHERE added>=? AND lat IS NOT NULL AND root IN (19,20) ORDER BY mentions DESC", (cutoff,)):
+            "SELECT geo_name, geo_cc, ROUND(lat,2) la, ROUND(lon,2) lo, mentions, sources, root, day, url FROM gdelt_events "
+            "WHERE added>=? AND lat IS NOT NULL AND root IN (19,20) "
+            "AND geo_name LIKE '%,%' "            # country-level geocodes sit on the centroid: nowhere in particular
+            "ORDER BY mentions DESC", (cutoff,)):
+            if not _plausible_incident(r["url"], r["mentions"], r["sources"]):
+                continue
             k = (r["la"], r["lo"])
             a = agg.get(k)
             if a is None:

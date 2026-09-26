@@ -23,8 +23,8 @@ SYSTEM = f"""You are an analyst maintaining a structured database of CURRENT ARM
 You receive (1) the existing conflict records and (2) a batch of new news items with numeric ids.
 Return ONLY a JSON object: {{"conflicts": [...]}} containing every existing conflict that the new items update, plus any genuinely new armed conflict the items reveal. Do not return conflicts the batch says nothing about. Return an empty list if nothing is relevant.
 
-INCLUDE: wars, insurgencies, civil wars, cross-border strikes, military occupations, naval/air confrontations, coups with fighting, terrorist campaigns by armed groups, active ceasefire negotiations for such conflicts.
-EXCLUDE: ordinary crime, domestic politics, elections, protests without armed fighting, disasters, sport, business, and purely diplomatic or trade disputes with no fighting or credible military threat (a "standoff" settled by an agreement is NOT an armed conflict).
+INCLUDE: wars, insurgencies, civil wars, cross-border strikes, military occupations, naval/air confrontations, coups with fighting, terrorist campaigns by armed groups, organised armed groups fighting the state or each other for territory (e.g. ELN / FARC dissidents in Colombia, gangs in Haiti, cartel wars in Mexico or Ecuador), active ceasefire negotiations for such conflicts.
+EXCLUDE: ordinary crime (individual shootings, stabbings, robberies), domestic politics, elections, protests without armed fighting, disasters, sport, business, and purely diplomatic or trade disputes with no fighting or credible military threat (a "standoff" settled by an agreement is NOT an armed conflict).
 
 Each conflict object:
 {{
@@ -237,6 +237,52 @@ def _valid(c: dict) -> bool:
 WEAPONS = {"missile", "drone", "airstrike", "artillery", "shelling", "ground", "bombing", "naval", "other"}
 
 
+def attacker_iso(text: str | None) -> str | None:
+    """ISO3 of a state named in an attacker string: "Ukraine", "Ukrainian drones", "Russian forces", "IDF"."""
+    words = re.findall(r"[a-z]+", (text or "").lower())
+    if not words:
+        return None
+    if "idf" in words:
+        return "ISR"
+    hits = set()
+    for iso, rec in geo.countries.table()["iso3"].items():
+        for nm in {rec.get("name") or "", rec.get("label") or ""}:
+            nm = nm.lower()
+            if not nm:
+                continue
+            if " " in nm:
+                if " ".join(re.findall(r"[a-z]+", nm)[:2]) in " ".join(words):   # "united states" ~ ...of america
+                    hits.add(iso)
+            elif any(w == nm or (len(nm) >= 5 and w.startswith(nm[:5])) or (len(nm) == 4 and w.startswith(nm)) for w in words):
+                hits.add(iso)          # "ukrainian" ~ ukraine, "russian" ~ russia, "iranian" ~ iran
+    return hits.pop() if len(hits) == 1 else None
+
+
+def place_ends(target: dict, origin: dict | None, attacker: str | None = None) -> None:
+    """Cross-border attacks where only a country is known put that end at the country's part nearest
+    the other end, not at its centroid (Russia's is in Siberia): an unnamed target in Russia hit from
+    Ukraine sits near the border, a launch "from Russia" at Kharkiv starts near Belgorod."""
+    if not origin and attacker and target["precision"] == "country":
+        # no launch site, but the attacker is a state ("Ukraine"): use its side of the target country
+        iso = geo.countries.iso3(attacker) or attacker_iso(attacker)
+        rec = geo.countries.table()["iso3"].get(iso) if iso and iso != target["country"] else None
+        if rec:
+            near = geo.toward(target["country"], rec["lat"], rec["lon"])
+            if near:
+                target["lat"], target["lon"] = near
+        return
+    if not origin or not origin.get("country") or origin["country"] == target["country"]:
+        return
+    if target["precision"] == "country":
+        near = geo.toward(target["country"], origin["lat"], origin["lon"])
+        if near:
+            target["lat"], target["lon"] = near
+    if origin["precision"] == "country":
+        near = geo.toward(origin["country"], target["lat"], target["lon"])
+        if near:
+            origin["lat"], origin["lon"] = near
+
+
 def _store_strikes(con, conflict_id: str, strikes: list, art: dict, conflict: dict | None = None) -> int:
     n = 0
     conflict = conflict or {"name": conflict_id.replace("-", " ")}
@@ -249,6 +295,7 @@ def _store_strikes(con, conflict_id: str, strikes: list, art: dict, conflict: di
             continue
         org = st.get("origin") or {}
         origin = geo.resolve(org.get("place"), org.get("country"), org.get("lat"), org.get("lon")) if org else None
+        place_ends(target, origin, st.get("attacker"))
         weapon = st.get("weapon") if st.get("weapon") in WEAPONS else "other"
         src = None
         for aid in st.get("article_ids") or []:
