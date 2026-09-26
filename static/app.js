@@ -1391,6 +1391,57 @@ document.addEventListener("visibilitychange", () => document.hidden ? leave() : 
 window.addEventListener("pagehide", leave);
 ping(); setInterval(ping, 25000);
 
+/* ---------- live TV: broadcasters' YouTube live streams in a docked player; nothing loads until opened ---------- */
+const TV = { channels: null, fetched: 0, key: null };
+const tvPref = (k, v) => { try { if (v === undefined) return localStorage.getItem("tv." + k); localStorage.setItem("tv." + k, v); } catch (_) {} };
+function placeTv() { $("#main").style.setProperty("--tv-right", ($("#panel").offsetWidth + 12) + "px"); }
+async function openTv() {
+  $("#tv").hidden = false; $("#tv-btn").setAttribute("aria-expanded", true);
+  $("#tv").classList.toggle("large", tvPref("large") === "1"); placeTv();
+  if (isMobile()) { toggleMenu(false); toggleLegend(false); }
+  if (!TV.channels || Date.now() - TV.fetched > 10 * 60000) {       // live video ids change when a broadcaster restarts its stream
+    if (!TV.channels) $("#tv-screen").innerHTML = `<div class="tv-msg">Finding live streams…</div>`;
+    try {
+      const r = await fetch("/api/live-tv"); if (!r.ok) throw new Error(r.status);
+      TV.channels = (await r.json()).channels || []; TV.fetched = Date.now();
+    } catch (_) { TV.channels = TV.channels || []; }
+  }
+  if ($("#tv").hidden) return;                                       // closed while loading
+  if (!TV.channels.length) { $("#tv-screen").innerHTML = `<div class="tv-msg">Couldn't load the channel list. Try again in a minute.</div>`; return; }
+  const saved = tvPref("channel");
+  const first = TV.channels.find(c => c.key === saved && c.live !== false) || TV.channels.find(c => c.live !== false) || TV.channels[0];
+  playTv(first.key);
+}
+function closeTv() {
+  $("#tv").hidden = true; $("#tv-screen").innerHTML = "";              // removing the iframe stops the stream
+  $("#tv-btn").setAttribute("aria-expanded", false);
+}
+function renderTvChannels() {
+  $("#tv-chans").innerHTML = TV.channels.map(c => `<button role="tab" data-key="${esc(c.key)}" aria-selected="${c.key === TV.key}"` +
+    ` class="${c.live === false ? "off" : ""}" title="${c.live === false ? "Not live right now" : esc(c.label)}">${esc(c.label)}</button>`).join("");
+}
+function playTv(key) {
+  const c = TV.channels.find(x => x.key === key); if (!c) return;
+  TV.key = key; tvPref("channel", key); renderTvChannels();
+  $("#tv-chans [aria-selected=true]")?.scrollIntoView({ block: "nearest", inline: "nearest" });
+  $("#tv-yt").href = c.youtube;
+  if (c.live === false) {
+    $("#tv-screen").innerHTML = `<div class="tv-msg">${esc(c.label)} isn't streaming live right now.<button id="tv-next">Watch another channel</button></div>`;
+    $("#tv-next").addEventListener("click", () => { const next = TV.channels.find(x => x.live !== false); if (next) playTv(next.key); });
+    return;
+  }
+  const params = "autoplay=1&mute=1&playsinline=1&rel=0&modestbranding=1";
+  // the server resolved the current live video; if it couldn't read YouTube, fall back to the channel's live embed
+  const src = c.video ? `https://www.youtube-nocookie.com/embed/${encodeURIComponent(c.video)}?${params}`
+    : `https://www.youtube.com/embed/live_stream?channel=${encodeURIComponent(c.channel)}&${params}`;
+  $("#tv-screen").innerHTML = `<iframe src="${esc(src)}" title="${esc(c.label)} live" allow="autoplay; encrypted-media; picture-in-picture; fullscreen" allowfullscreen referrerpolicy="strict-origin-when-cross-origin"></iframe>`;
+}
+$("#tv-btn").addEventListener("click", () => $("#tv").hidden ? openTv() : closeTv());
+$("#tv-close").addEventListener("click", () => { closeTv(); $("#tv-btn").focus(); });
+$("#tv-size").addEventListener("click", () => { const on = $("#tv").classList.toggle("large"); tvPref("large", on ? "1" : "0"); });
+$("#tv-chans").addEventListener("click", (e) => { const b = e.target.closest("button"); if (b && b.dataset.key !== TV.key) playTv(b.dataset.key); });
+new ResizeObserver(placeTv).observe($("#panel"));
+
 /* ---------- layers menu, legend (on phones only one of them is open at a time), bottom sheet ---------- */
 function toggleMenu(on = !document.body.classList.contains("menu-open")) {
   document.body.classList.toggle("menu-open", on);

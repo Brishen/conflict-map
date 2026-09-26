@@ -23,6 +23,7 @@
     </a>
   </div>
   <div class="status" id="status">loading…</div>
+  <button id="tv-btn" aria-expanded="false" aria-controls="tv" title="Watch live TV news channels"><span class="live-dot"></span><span class="long">Live TV</span><span class="short">TV</span></button>
   <button id="menu-btn" aria-expanded="false" aria-controls="controls" title="Layers &amp; settings">
     <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path fill="currentColor" d="M8 1 1 4.5 8 8l7-3.5L8 1Zm-5.6 6.2L1 7.9 8 11.4l7-3.5-1.4-.7L8 10 2.4 7.2Zm0 3.4L1 11.3 8 14.8l7-3.5-1.4-.7L8 13.4l-5.6-2.8Z"/></svg>
     <span>Layers</span></button>
@@ -95,6 +96,16 @@
     <div class="row note" data-layer="tg-aircraft" id="aircraft-note">aircraft: public ADS-B, shown with a delay, only those broadcasting</div>
     <div class="row note" data-layer="tg-strikes">attack icons sit on the city hit; faded icon in a ring = only the country is known</div>
   </div>
+  <section id="tv" hidden aria-label="Live TV news">
+    <div class="tv-bar">
+      <span class="tv-live"><span class="live-dot"></span>LIVE</span>
+      <div class="tv-chans" id="tv-chans" role="tablist" aria-label="Channel"></div>
+      <button class="tv-size" id="tv-size" title="Larger player" aria-label="Toggle player size">⤢</button>
+      <button class="tv-close" id="tv-close" title="Close" aria-label="Close live TV">×</button>
+    </div>
+    <div class="tv-screen" id="tv-screen"></div>
+    <div class="tv-foot"><span>Broadcasters' YouTube streams · starts muted</span><a id="tv-yt" href="#" target="_blank" rel="noopener">Open on YouTube ↗</a></div>
+  </section>
   <div id="tooltip" hidden></div>
 </div>
 

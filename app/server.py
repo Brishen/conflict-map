@@ -12,7 +12,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 
-from . import aircraft, countries, ships, gdelt, pipeline, reader
+from . import aircraft, countries, ships, gdelt, livetv, pipeline, reader
 from .config import AIRCRAFT_ENABLED, GDELT_WINDOW_HOURS, REFRESH_MINUTES, SERVE_ONLY, STATIC_DIR
 from .db import all_conflicts, db, get_state
 
@@ -221,6 +221,12 @@ async def refresh(skip_llm: bool = False):
         return JSONResponse({"error": "viewer mode: refreshes run on the home pipeline"}, status_code=403)
     asyncio.create_task(asyncio.to_thread(_refresh_job, skip_llm))
     return {"started": not _lock.locked()}
+
+
+@app.get("/api/live-tv")
+async def live_tv():
+    data = await asyncio.to_thread(livetv.channels)
+    return JSONResponse({"channels": data}, headers={"Cache-Control": "max-age=120"})
 
 
 # ---- who is here now: each open, visible tab pings with a random per-tab id; nothing else is kept

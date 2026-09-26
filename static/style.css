@@ -238,6 +238,32 @@ body.legend-open #legend { display: flex; }
 .maplibregl-ctrl-attrib { display: none; }
 .mobile-only { display: none; }
 
+/* ---------- live TV: a docked player over the map, top right ---------- */
+.live-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: #e34948; flex: none; }
+#tv-btn { display: inline-flex; align-items: center; gap: 7px; }
+#tv-btn .short { display: none; }
+#tv-btn[aria-expanded="true"] { border-color: var(--ink-2); background: var(--surface); }
+#tv-btn[aria-expanded="true"] .live-dot { animation: online 2.4s infinite; box-shadow: 0 0 0 0 rgba(227,73,72,.6); }
+#tv { position: absolute; top: 12px; right: var(--tv-right, 392px); z-index: 7; width: 380px; max-width: calc(100% - 24px);
+      background: var(--surface); border: 1px solid var(--border); border-radius: 10px; overflow: hidden;
+      box-shadow: 0 12px 32px rgba(0,0,0,.55); display: flex; flex-direction: column; }
+#tv[hidden] { display: none; }
+#tv.large { width: 620px; }
+.tv-bar { display: flex; align-items: center; gap: 8px; padding: 6px 6px 6px 10px; border-bottom: 1px solid var(--border); }
+.tv-live { display: inline-flex; align-items: center; gap: 5px; font-size: 10.5px; font-weight: 700; letter-spacing: .08em; color: #e34948; flex: none; }
+.tv-chans { display: flex; gap: 4px; overflow-x: auto; flex: 1; min-width: 0; scrollbar-width: none; }
+.tv-chans button { flex: none; font-size: 11.5px; padding: 3px 8px; border-radius: 999px; background: transparent; color: var(--ink-2); min-height: 0; }
+.tv-chans button[aria-selected="true"] { background: var(--surface-2); color: var(--ink); border-color: var(--ink-2); }
+.tv-chans button.off { opacity: .5; }
+.tv-size, .tv-close { flex: none; width: 28px; height: 28px; padding: 0; min-height: 0; font-size: 15px; line-height: 1; background: transparent; }
+.tv-screen { position: relative; aspect-ratio: 16 / 9; background: #000; }
+.tv-screen iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
+.tv-screen .tv-msg { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px;
+                     padding: 16px; text-align: center; color: var(--ink-2); font-size: 13px; line-height: 1.5; }
+.tv-foot { display: flex; justify-content: space-between; gap: 10px; padding: 5px 10px; font-size: 11px; color: var(--muted); }
+.tv-foot a { color: var(--ink-2); text-decoration: none; white-space: nowrap; }
+.tv-foot a:hover { color: var(--ink); }
+
 /* ---------- phones & small tablets: full-screen map, bottom sheet, layers menu ---------- */
 @media (max-width: 900px) {
   body { font-size: 15px; }
@@ -303,6 +329,11 @@ body.legend-open #legend { display: flex; }
   #legend { left: auto; right: max(10px, env(safe-area-inset-right)); top: 52px; bottom: auto; max-width: calc(100% - 20px); }
 
   .maplibregl-ctrl-top-left { top: 0; left: env(safe-area-inset-left); }
+  #tv-btn { margin-left: auto; min-height: 36px; padding: 6px 12px; font-size: 13px; }
+  #tv-btn .long { display: none; } #tv-btn .short { display: inline; }
+  #tv-btn + #menu-btn { margin-left: 0; }
+  #tv, #tv.large { top: 8px; left: max(8px, env(safe-area-inset-left)); right: max(8px, env(safe-area-inset-right)); width: auto; max-width: none; z-index: 12; }
+  .tv-size { display: none; }
   .maplibregl-popup-content { max-width: min(280px, 80vw); }
 }
 /* touch: no hover tooltips (they stick after a tap) and bigger hit areas on markers */
