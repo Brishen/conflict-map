@@ -67,18 +67,29 @@ def _resolve(handle: str, channel_id: str) -> dict:
     except httpx.HTTPError as e:
         log.info("livetv %s: %s", handle, e)
         return {}
-    canon = re.search(r'<link rel="canonical" href="([^"]+)"', r.text)
-    if not canon or "consent." in canon.group(1):
+    html = r.text
+    canon = (re.search(r'<link rel="canonical" href="([^"]+)"', html) or [None, ""])[1]
+    if "consent." in canon:
         return {}
-    if "/watch?v=" not in canon.group(1):
+    if "/channel/" in canon:
         return {"live": False}             # the /live page fell back to the channel page: nothing on air
-    p = _player_response(r.text) or {}
+    p = _player_response(html) or {}
     vd, ps = p.get("videoDetails") or {}, p.get("playabilityStatus") or {}
-    if vd.get("channelId") != channel_id:
-        return {}
-    if vd.get("isLive") and ps.get("status") == "OK" and ps.get("playableInEmbed") is not False:
-        return {"live": True, "video": vd.get("videoId")}
-    return {"live": False}
+    if vd.get("videoId"):
+        if vd.get("channelId") != channel_id:
+            return {}
+        if vd.get("isLive") and ps.get("status") == "OK" and ps.get("playableInEmbed") is not False:
+            return {"live": True, "video": vd["videoId"]}
+        return {"live": False}
+    # servers on datacenter IPs get "Sign in to confirm you're not a bot": the player data is stripped,
+    # but the watch page data still names the current video, its owner and whether it is live. Viewers'
+    # own browsers aren't bot-checked, so that video id plays fine for them.
+    cur = re.search(r'currentVideoEndpoint.{0,400}?"watchEndpoint":\{"videoId":"([A-Za-z0-9_-]{11})"', html)
+    owner = re.search(r'videoOwnerRenderer.{0,1500}?"browseId":"(UC[A-Za-z0-9_-]{22})"', html)
+    live = re.search(r'videoViewCountRenderer.{0,600}?"isLive":true', html)
+    if cur and owner and owner[1] == channel_id and live:
+        return {"live": True, "video": cur[1]}
+    return {}
 
 
 def _refresh(stale: list[tuple]):
