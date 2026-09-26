@@ -4,8 +4,10 @@ import hashlib
 import json
 import logging
 import os
+import re
 import threading
 import time
+import uuid
 from datetime import datetime, timedelta, timezone
 
 from fastapi import FastAPI, Request
@@ -13,8 +15,8 @@ from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 from . import aircraft, countries, ships, gdelt, livetv, pipeline, reader
-from .config import AIRCRAFT_ENABLED, GDELT_WINDOW_HOURS, REFRESH_MINUTES, SERVE_ONLY, STATIC_DIR
-from .db import all_conflicts, db, get_state
+from .config import AIRCRAFT_ENABLED, DATA_DIR, GDELT_WINDOW_HOURS, REFRESH_MINUTES, SERVE_ONLY, STATIC_DIR
+from .db import all_conflicts, db, get_state, store_report
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
 log = logging.getLogger("server")
@@ -237,7 +239,7 @@ async def live_tv():
 
 # ---- who is here now: each open, visible tab pings with a random per-tab id; nothing else is kept
 PRESENCE_TTL = 70            # seconds without a ping before a tab stops counting (tabs ping every 25 s)
-_presence: dict[str, float] = {}
+_presence: dict[str, tuple[float, str]] = {}   # tab id -> (last ping, conflict id it has open or "")
 
 
 @app.post("/api/presence")
@@ -247,15 +249,81 @@ async def presence(request: Request):
     except Exception:  # noqa: BLE001
         body = {}
     sid = str(body.get("id") or "")[:40]
+    view = str(body.get("view") or "")
+    view = view if re.fullmatch(r"[a-z0-9-]{1,64}", view) else ""
     now = time.time()
-    for k in [k for k, t in _presence.items() if now - t > PRESENCE_TTL]:
+    for k in [k for k, (t, _) in _presence.items() if now - t > PRESENCE_TTL]:
         _presence.pop(k, None)
     if sid and len(sid) >= 8:
         if body.get("leave"):
             _presence.pop(sid, None)
         elif sid in _presence or len(_presence) < 20000:   # cap so junk ids can't grow memory
-            _presence[sid] = now
-    return JSONResponse({"online": len(_presence)}, headers={"Cache-Control": "no-store"})
+            _presence[sid] = (now, view)
+    views: dict[str, int] = {}
+    for _, v in _presence.values():
+        if v:
+            views[v] = views.get(v, 0) + 1
+    return JSONResponse({"online": len(_presence), "views": views}, headers={"Cache-Control": "no-store"})
+
+
+# ---- "Report a problem": visitors flag wrong locations, non-conflicts, wrong sides. Nothing is shown publicly.
+# The public viewer's database is replaced on every push, so there reports go to a separate file that the
+# home pipeline pulls in; on the home viewer they go straight into the database.
+REPORT_KINDS = {"conflict", "strike", "incident", "local"}
+REPORT_LIMIT = [(600, 5), (86400, 30)]        # per client: 5 per 10 min, 30 per day
+_report_hits: dict[str, list[float]] = {}
+
+
+@app.post("/api/report")
+async def report(request: Request):
+    try:
+        body = await request.json()
+    except Exception:  # noqa: BLE001
+        return JSONResponse({"error": "bad request"}, status_code=400)
+    if body.get("website"):                          # honeypot field, invisible to people
+        return JSONResponse({"ok": True})
+    kind, reason = str(body.get("kind") or ""), str(body.get("reason") or "").strip()[:80]
+    if kind not in REPORT_KINDS or not reason:
+        return JSONResponse({"error": "missing kind or reason"}, status_code=400)
+    ip, now = _client_ip(request), time.time()
+    hits = [t for t in _report_hits.get(ip, []) if now - t < REPORT_LIMIT[-1][0]]
+    if any(sum(1 for t in hits if now - t < win) >= n for win, n in REPORT_LIMIT):
+        return JSONResponse({"error": "too many reports, try again later"}, status_code=429)
+    _report_hits[ip] = hits + [now]
+    rec = {"id": uuid.uuid4().hex, "ts": int(now), "kind": kind, "ref": str(body.get("ref") or "")[:200],
+           "title": str(body.get("title") or "")[:300], "reason": reason, "note": str(body.get("note") or "").strip()[:1000],
+           "page": str(body.get("page") or "")[:300]}
+    if SERVE_ONLY:
+        path = DATA_DIR / "reports.jsonl"
+        if path.exists() and path.stat().st_size > 5_000_000:
+            return JSONResponse({"error": "report box is full, try again later"}, status_code=503)
+        with open(path, "a") as f:
+            f.write(json.dumps(rec) + "\n")
+    else:
+        with db() as con:
+            store_report(con, rec)
+    return JSONResponse({"ok": True})
+
+
+@app.get("/api/reports")
+def reports_list():
+    if SERVE_ONLY:
+        return JSONResponse({"error": "not available here"}, status_code=403)
+    with db() as con:
+        rows = con.execute("SELECT * FROM reports ORDER BY status='resolved', ts DESC LIMIT 300").fetchall()
+    return {"reports": [dict(r) for r in rows]}
+
+
+@app.post("/api/reports/{rid}")
+async def reports_update(rid: str, request: Request):
+    if SERVE_ONLY:
+        return JSONResponse({"error": "not available here"}, status_code=403)
+    status = (await request.json()).get("status")
+    if status not in ("open", "resolved"):
+        return JSONResponse({"error": "bad status"}, status_code=400)
+    with db() as con:
+        con.execute("UPDATE reports SET status=? WHERE id=?", (status, rid))
+    return {"ok": True}
 
 
 @app.get("/")

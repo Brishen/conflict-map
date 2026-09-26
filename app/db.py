@@ -47,6 +47,10 @@ CREATE TABLE IF NOT EXISTS strikes (
 );
 CREATE INDEX IF NOT EXISTS idx_strikes_date ON strikes(date);
 CREATE TABLE IF NOT EXISTS state (key TEXT PRIMARY KEY, value TEXT);
+CREATE TABLE IF NOT EXISTS reports (
+    id TEXT PRIMARY KEY, ts INTEGER, kind TEXT, ref TEXT, title TEXT, reason TEXT, note TEXT, page TEXT,
+    status TEXT DEFAULT 'open'
+);
 CREATE TABLE IF NOT EXISTS local_news (
     url TEXT PRIMARY KEY, added INTEGER, lat REAL, lon REAL, place TEXT, cc TEXT,
     root INTEGER, quad INTEGER, mentions INTEGER, tone REAL
@@ -110,3 +114,8 @@ def all_conflicts(con) -> list[dict]:
         d["updated"] = r["updated"]
         out.append(d)
     return out
+
+
+def store_report(con, rec: dict):
+    con.execute("INSERT OR IGNORE INTO reports(id,ts,kind,ref,title,reason,note,page) VALUES (?,?,?,?,?,?,?,?)",
+                (rec["id"], rec["ts"], rec["kind"], rec["ref"], rec["title"], rec["reason"], rec["note"], rec["page"]))

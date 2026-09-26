@@ -1,4 +1,5 @@
 """Run one full refresh: GDELT + feeds + LLM extraction."""
+import json
 import logging
 import sqlite3
 import subprocess
@@ -7,7 +8,7 @@ import time
 from . import dedupe, extract, feeds, gdelt
 from . import stats as figures
 from .config import DATA_DIR, DB_PATH, PUSH_TARGET
-from .db import db, set_state
+from .db import db, set_state, store_report
 
 log = logging.getLogger("pipeline")
 
@@ -38,6 +39,11 @@ def refresh(skip_llm: bool = False, gdelt_files: int | None = None):
         set_state(con, "last_refresh", stats)
     if PUSH_TARGET:
         try:
+            stats["reports_pulled"] = pull_reports(PUSH_TARGET)
+        except Exception as e:  # noqa: BLE001
+            log.exception("pulling reports failed")
+            stats["reports_error"] = str(e)
+        try:
             push_db(PUSH_TARGET)
             stats["pushed"] = PUSH_TARGET
         except Exception as e:  # noqa: BLE001
@@ -45,6 +51,27 @@ def refresh(skip_llm: bool = False, gdelt_files: int | None = None):
             stats["push_error"] = str(e)
     log.info("refresh done: %s", stats)
     return stats
+
+
+def pull_reports(target: str) -> int:
+    """Copy visitors' problem reports from the public viewer (data/reports.jsonl there) into the local
+    database; ids make it idempotent, so the remote file is simply read again next time."""
+    host, _, remote_dir = target.partition(":")
+    out = subprocess.run(["ssh", host, f"cat {remote_dir}/reports.jsonl 2>/dev/null || true"],
+                         capture_output=True, text=True, check=True, timeout=60).stdout
+    n = 0
+    with db() as con:
+        for line in out.splitlines():
+            try:
+                rec = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            before = con.total_changes
+            store_report(con, rec)
+            n += con.total_changes - before
+    if n:
+        log.info("pulled %d new problem reports", n)
+    return n
 
 
 def push_db(target: str):
@@ -56,6 +83,11 @@ def push_db(target: str):
     src = sqlite3.connect(DB_PATH)
     dst = sqlite3.connect(snap)
     src.backup(dst)
+    try:
+        dst.execute("DELETE FROM reports")             # visitors' reports stay at home, never on the public box
+        dst.commit()
+    except sqlite3.OperationalError:
+        pass                                           # database from before the reports table
     dst.execute("PRAGMA journal_mode=DELETE")
     dst.execute("VACUUM")
     dst.close()

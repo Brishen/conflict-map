@@ -550,6 +550,7 @@ async function load() {
 
 function render() {
   renderStatus();
+  loadReports();
   renderHeat();
   renderMarkers();
   renderArcs();
@@ -780,11 +781,12 @@ function renderList({ animate = true } = {}) {
     const others = c.parties.filter(p => p.role !== "combatant" && norm(p.country)).map(p => flag(norm(p.country)));
     return `<div class="card ${c.id === selected ? "selected" : ""}" data-id="${esc(c.id)}" tabindex="0" role="button">
       <div class="head"><span class="name">${esc(c.name)}</span>${sevbar(c.severity)}<span class="badge st-${esc(c.status)}">${esc(STATUS_LABEL[c.status] || c.status)}</span></div>
-      <div class="region">${esc(c.region || "")} · updated ${ago(c.updated)}${nStrikes(c.id) ? ` · ${nStrikes(c.id)} attack${nStrikes(c.id) === 1 ? "" : "s"} / 7d` : ""}</div>
+      <div class="region">${esc(c.region || "")} · updated ${ago(c.updated)}${nStrikes(c.id) ? ` · ${nStrikes(c.id)} attack${nStrikes(c.id) === 1 ? "" : "s"} / 7d` : ""}<span class="viewing" data-viewing="${esc(c.id)}" hidden></span></div>
       <div class="flags">${[...new Set(combat)].join(" ")}<span style="opacity:.5"> ${[...new Set(others)].join(" ")}</span></div>
     </div>`;
   }).join("") || `<div class="empty">No conflicts match these filters.<br><br><button id="clear-filters">Clear filters</button></div>`;
   document.querySelectorAll(".card").forEach(el => el.addEventListener("click", () => select(el.dataset.id)));
+  updateViewing();
   $("#clear-filters")?.addEventListener("click", () => {
     LIST.q = ""; LIST.status = ""; $("#q").value = ""; $("#region").value = ""; applyListFilter(); $("#q").focus();
   });
@@ -805,7 +807,8 @@ function renderDetail() {
   d.innerHTML = `
     <button class="back">← ${backCountry ? esc(countryName(backCountry)) : "all conflicts"}</button>
     <h2>${esc(c.name)}</h2>
-    <div class="meta"><span class="badge st-${esc(c.status)}">${esc(STATUS_LABEL[c.status] || c.status)}</span>${sevbar(c.severity)} <span>${esc(c.region || "")}</span></div>
+    <div class="meta"><span class="badge st-${esc(c.status)}">${esc(STATUS_LABEL[c.status] || c.status)}</span>${sevbar(c.severity)} <span>${esc(c.region || "")}</span>
+      <span class="viewing in-detail" data-viewing="${esc(c.id)}" hidden></span>${reportLink("conflict", c.id, c.name)}</div>
     ${statTiles(c)}
     <p class="summary">${esc(c.summary)}</p>
     ${figureList(c)}
@@ -824,7 +827,8 @@ function renderDetail() {
     <h3>Sources</h3>
     ${(c.sources || []).slice(0, 12).map(s => `<div class="src" tabindex="0" role="button" data-url="${esc(s.link)}" data-title="${esc(s.title)}" data-source="${esc(s.source)}">${esc(s.title)} <span class="s">— ${esc(s.source)}</span> <a href="${esc(s.link)}" target="_blank" title="open original">↗</a></div>`).join("")}
   `;
-  d.querySelector(".back").addEventListener("click", goBack);  d.querySelectorAll(".fig[data-url]").forEach(el => el.addEventListener("click", (ev) => {
+  d.querySelector(".back").addEventListener("click", goBack);
+  updateViewing();  d.querySelectorAll(".fig[data-url]").forEach(el => el.addEventListener("click", (ev) => {
     if (ev.target.tagName === "A") return;
     openArticle(el.dataset.url, { title: el.dataset.title, source: el.dataset.source });
   }));
@@ -840,7 +844,7 @@ function renderDetail() {
     const st = STATE.strikes.find(x => x.id === +el.dataset.id);
     if (!st) return;
     map.flyTo({ center: [st.target_lon, st.target_lat], zoom: Math.max(map.getZoom(), 5.5), speed: 0.9, padding: sheetPadding() });
-    if (st.link) openArticle(st.link, { title: st.title, source: st.source, context: strikeHtml(st) });   // show the report too
+    if (st.link) openArticle(st.link, { title: st.title, source: st.source, context: strikeHtml(st), report: strikeReport(st) });   // show the report too
     else if (isMobile() && $("#panel").dataset.sheet === "full") setSheet("peek");
   }));
 }
@@ -856,9 +860,118 @@ function select(id, opts = {}) {
   if (c && c.epicenter && !opts.keepView) map.flyTo({ center: [c.epicenter.lon, c.epicenter.lat], zoom: Math.max(map.getZoom(), 3.2), speed: 0.55, curve: 1.3, essential: true, padding: sheetPadding() });
   renderMarkers(); renderArcs(); applyInvolvement(); renderStrikes();
   if (c) renderDetail(); else renderList();
+  if (id !== prev) ping();
   // keyboard users land on the new view: the back button, or the card they came from
   if (kbd) (c ? $("#detail .back") : prev && document.querySelector(`.card[data-id="${CSS.escape(prev)}"]`))?.focus({ preventScroll: !c });
 }
+
+/* ---------- "Report a problem": goes privately to the maintainer, nothing is shown on the site ---------- */
+const REPORT_REASONS = {
+  conflict: ["Not an armed conflict", "Wrong sides or parties", "Wrong status or severity", "Out of date", "Wrong figures", "Duplicate of another conflict", "Other"],
+  strike: ["Wrong location", "Not an attack / didn't happen", "Wrong attacker or weapon", "Belongs to another conflict", "Duplicate", "Other"],
+  incident: ["Wrong location", "Not violence or conflict", "Other"],
+  local: ["Wrong location", "Not news / spam", "Offensive or harmful", "Other"],
+};
+const reportLink = (kind, ref, title) =>
+  `<button class="report-link" data-report-kind="${esc(kind)}" data-report-ref="${esc(ref)}" data-report-title="${esc(title)}" title="Tell the maintainer something is wrong here">⚑ Report a problem</button>`;
+function strikeReport(st) {
+  const who = st.attacker && st.attacker !== "unknown" ? st.attacker : (st.origin_name || "");
+  return { kind: "strike", ref: String(st.id), title: `Attack: ${who ? who + " → " : ""}${st.target_name} (${st.date}, ${st.weapon})` };
+}
+document.addEventListener("click", (e) => {
+  const b = e.target.closest("[data-report-kind]"); if (!b) return;
+  e.preventDefault(); e.stopPropagation();
+  openReport(b.dataset.reportKind, b.dataset.reportRef, b.dataset.reportTitle);
+});
+function openReport(kind, ref, title) {
+  const r = $("#reader"); readerSeq++;
+  $("#list").hidden = true; $("#detail").hidden = true; $("#list-tools").hidden = true; r.hidden = false; readerOpen = true; reveal(r);
+  if (isMobile()) setSheet("full");
+  $("#panel").scrollTop = 0;
+  r.innerHTML = `<button class="back">← back</button>
+    <h2>Report a problem</h2>
+    <div class="meta">${esc(title)}</div>
+    <form id="report-form" class="report-form">
+      <fieldset><legend>What's wrong?</legend>
+        ${(REPORT_REASONS[kind] || ["Other"]).map((x, i) => `<label><input type="radio" name="reason" value="${esc(x)}"${i ? "" : " required"}> ${esc(x)}</label>`).join("")}
+      </fieldset>
+      <label class="note"><span>Details <span class="opt">(optional)</span></span>
+        <textarea name="note" maxlength="1000" rows="4" placeholder="e.g. this attack hit Kharkiv, not Kyiv; or a link to a better source"></textarea></label>
+      <input name="website" class="hp" tabindex="-1" autocomplete="off" aria-hidden="true">
+      <button type="submit">Send report</button>
+      <div class="fine">Reports go privately to the maintainer and help fix the map. Nothing you write is shown on the site.</div>
+    </form>`;
+  r.querySelector(".back").addEventListener("click", closeReader);
+  r.querySelector("input[name=reason]")?.focus({ preventScroll: true });
+  r.querySelector("#report-form").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const f = e.target, btn = f.querySelector("button[type=submit]");
+    btn.disabled = true; btn.textContent = "Sending…";
+    let res;
+    try {
+      res = await (await fetch("/api/report", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({
+        kind, ref, title, reason: f.reason.value, note: f.note.value, website: f.website.value, page: location.hash.slice(0, 300) }) })).json();
+    } catch (_) { res = { error: "couldn't reach the server" }; }
+    if (res.ok) {
+      f.outerHTML = `<div class="report-done">Thanks, your report has been sent. <button class="back2">Back to the map</button></div>`;
+      r.querySelector(".back2").addEventListener("click", closeReader);
+      if (!STATE.meta.serve_only) loadReports();
+    } else {
+      btn.disabled = false; btn.textContent = "Send report";
+      f.querySelector(".fine").textContent = `Not sent: ${res.error || "unknown error"}.`;
+    }
+  });
+}
+
+/* the home viewer (never the public one) lists incoming reports for review */
+let REPORTS = [];
+async function loadReports() {
+  if (!STATE || STATE.meta.serve_only) return;
+  try { REPORTS = (await (await fetch("/api/reports")).json()).reports || []; } catch (_) { return; }
+  const open = REPORTS.filter(x => x.status !== "resolved").length;
+  $("#reports-btn").hidden = !REPORTS.length;
+  $("#reports-btn .n").textContent = open;
+  $("#reports-btn").classList.toggle("has-open", open > 0);
+}
+function openReports() {
+  const r = $("#reader"); readerSeq++;
+  $("#list").hidden = true; $("#detail").hidden = true; $("#list-tools").hidden = true; r.hidden = false; readerOpen = true; reveal(r);
+  if (isMobile()) setSheet("full");
+  const row = (x) => `<div class="rep ${x.status === "resolved" ? "done" : ""}" data-id="${esc(x.id)}">
+      <div class="rep-h"><span class="rep-kind">${esc(x.kind)}</span> <b>${esc(x.reason)}</b> <span class="rep-t">${esc(ago(x.ts))}</span></div>
+      <div class="rep-title">${esc(x.title)}</div>
+      ${x.note ? `<div class="rep-note">“${esc(x.note)}”</div>` : ""}
+      <div class="rep-actions"><button data-act="go">Go to it</button><button data-act="toggle">${x.status === "resolved" ? "Reopen" : "Mark resolved"}</button></div>
+    </div>`;
+  r.innerHTML = `<button class="back">← back</button><h2>Problem reports</h2>
+    <div class="meta">Sent by visitors from the public site and this one. Only visible here.</div>
+    ${REPORTS.map(row).join("") || "<div class='empty'>No reports yet.</div>"}`;
+  r.querySelector(".back").addEventListener("click", closeReader);
+  r.querySelectorAll(".rep").forEach(el => el.addEventListener("click", async (e) => {
+    const b = e.target.closest("button[data-act]"); if (!b) return;
+    const x = REPORTS.find(y => y.id === el.dataset.id);
+    if (b.dataset.act === "toggle") {
+      await fetch(`/api/reports/${encodeURIComponent(x.id)}`, { method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: x.status === "resolved" ? "open" : "resolved" }) });
+      await loadReports(); openReports();
+    } else goToReport(x);
+  }));
+}
+function goToReport(x) {
+  const view = new URLSearchParams((x.page || "").replace(/^#/, "")).get("map");
+  if (x.kind === "conflict" && STATE.conflicts.find(c => c.id === x.ref)) { select(x.ref); return; }
+  if (x.kind === "strike") {
+    const st = (STATE.strikes || []).find(s => String(s.id) === x.ref);
+    if (st) { select(st.conflict_id, { keepView: true }); map.flyTo({ center: [st.target_lon, st.target_lat], zoom: Math.max(map.getZoom(), 5.5) }); return; }
+  }
+  if (x.kind === "incident") {
+    const [la, lo] = x.ref.split(" ")[0].split(",").map(Number);
+    if (!isNaN(la)) { closeReader(); map.flyTo({ center: [lo, la], zoom: Math.max(map.getZoom(), 6) }); return; }
+  }
+  if (x.kind === "local") { openArticle(x.ref, { title: x.title }); }
+  if (view) { const [z, la, lo] = view.split("/").map(Number); if (!isNaN(lo)) map.flyTo({ center: [lo, la], zoom: z }); }
+}
+$("#reports-btn").addEventListener("click", () => { loadReports().then(openReports); });
 
 /* back from a conflict: to the country view it was opened from, else to the list */
 function goBack() { if (backCountry) selectCountry(backCountry); else select(null); }
@@ -1025,7 +1138,7 @@ async function openArticle(url, opts = {}) {
   const altHtml = alts ? `<div class="alt">${alts.map(u => `<div class="${u === url ? "on" : ""}" data-url="${esc(u)}">${esc(host(u))}</div>`).join("")}</div>` : "";
   $("#list-tools").hidden = true;
   r.innerHTML = `<button class="back">← back</button>
-    ${opts.context ? `<div class="meta" style="margin-bottom:8px">${opts.context}</div>` : ""}${altHtml}
+    ${opts.context ? `<div class="meta" style="margin-bottom:8px">${opts.context}</div>` : ""}${opts.report ? `<div class="report-row">${reportLink(opts.report.kind, opts.report.ref, opts.report.title)}</div>` : ""}${altHtml}
     <div class="site">${esc(opts.source || host(url))}</div>
     <h2>${esc(opts.title || "")}</h2>
     <div class="loading">Loading article</div>`;
@@ -1063,14 +1176,19 @@ function closeReader() {
 
 function openStrikeFeature(f, lngLat) {
   const p = f.properties;
-  if (p.link) openArticle(p.link, { title: p.title, source: p.source, context: strikeHtml(p) });
-  else new maplibregl.Popup({ closeButton: true, maxWidth: "300px" }).setLngLat(lngLat).setHTML(strikeHtml(p)).addTo(map);
+  if (p.link) openArticle(p.link, { title: p.title, source: p.source, context: strikeHtml(p), report: strikeReport(p) });
+  else {
+    const r = strikeReport(p);
+    new maplibregl.Popup({ closeButton: true, maxWidth: "300px" }).setLngLat(lngLat).setHTML(strikeHtml(p) + `<br>${reportLink(r.kind, r.ref, r.title)}`).addTo(map);
+  }
 }
 function openIncidentFeature(f) {
   const p = f.properties;
   let urls = [];
   try { urls = JSON.parse(p.urls || "[]"); } catch (_) { urls = p.url ? [p.url] : []; }
-  if (urls.length) openArticle(urls[0], { alternatives: urls, context: incidentHtml(p) + `<div style="opacity:.55;margin-top:4px">Articles GDELT tagged with this place. Placement is automatic and can be wrong.</div>` });
+  const coords = f.geometry.coordinates.map(v => (+v).toFixed(3)).reverse().join(",");
+  if (urls.length) openArticle(urls[0], { alternatives: urls, context: incidentHtml(p) + `<div style="opacity:.55;margin-top:4px">Articles GDELT tagged with this place. Placement is automatic and can be wrong.</div>`,
+    report: { kind: "incident", ref: `${coords} ${urls[0]}`, title: `Incident: ${p.name || ""}` } });
 }
 /* fingers are imprecise: on touch screens a tap near a strike / incident circle counts as a hit */
 function fuzzyTap(e) {
@@ -1251,7 +1369,8 @@ function localHtml(p) {
 }
 function openLocalFeature(f) {
   const p = f.properties;
-  openArticle(p.url, { title: p.title, source: host(p.url), context: `<b>${esc(p.place || "")}</b> · ${esc(ago(p.t))} · <span style="opacity:.7">placed on the map by GDELT, automatically</span>` });
+  openArticle(p.url, { title: p.title, source: host(p.url), context: `<b>${esc(p.place || "")}</b> · ${esc(ago(p.t))} · <span style="opacity:.7">placed on the map by GDELT, automatically</span>`,
+    report: { kind: "local", ref: p.url, title: `Local news: ${p.title || ""} (${p.place || ""})` } });
 }
 $("#tg-local").addEventListener("change", (e) => {
   for (const id of ["local-news", "local-news-outline"]) map.setLayoutProperty(id, "visibility", e.target.checked ? "visible" : "none");
@@ -1522,7 +1641,18 @@ map.on("click", (e) => {
 })();
 
 /* ---------- presence: how many people have the map open (a random id per tab, nothing else) ---------- */
-let ONLINE = 0;
+let ONLINE = 0, VIEWS = {};
+/* "3 viewing" on list cards (other people: you are on the list), "2 viewing now (incl. you)" in a conflict */
+function viewingText(cid, inDetail) {
+  const n = VIEWS[cid] || 0;
+  return inDetail ? (n >= 2 ? `${n} viewing now (incl. you)` : "") : (n ? `${n} viewing` : "");
+}
+function updateViewing() {
+  document.querySelectorAll("[data-viewing]").forEach(el => {
+    const t = viewingText(el.dataset.viewing, el.classList.contains("in-detail"));
+    el.textContent = t; el.hidden = !t;
+  });
+}
 const TAB_ID = (() => {
   try { let id = sessionStorage.getItem("tabId"); if (!id) sessionStorage.setItem("tabId", id = crypto.randomUUID()); return id; }
   catch (_) { return crypto.randomUUID(); }
@@ -1530,8 +1660,10 @@ const TAB_ID = (() => {
 async function ping() {
   if (document.hidden) return;
   try {
-    const r = await (await fetch("/api/presence", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: TAB_ID }) })).json();
+    const r = await (await fetch("/api/presence", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: TAB_ID, view: selected || "" }) })).json();
     if (r.online !== ONLINE) { ONLINE = r.online; if (STATE) renderStatus(); }
+    VIEWS = r.views || {}; updateViewing();
   } catch (_) {}
 }
 const leave = () => navigator.sendBeacon?.("/api/presence", new Blob([JSON.stringify({ id: TAB_ID, leave: true })], { type: "application/json" }));
