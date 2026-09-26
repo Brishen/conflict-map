@@ -99,6 +99,7 @@ def _slug_title(url: str) -> str | None:
     path = re.sub(r"^https?://[^/]+", "", url or "").split("?")[0].rstrip("/")
     best = max(path.split("/"), key=lambda seg: len(re.findall(r"[A-Za-z]{2,}", seg)), default="")
     best = re.sub(r"\.(html?|php|aspx?|cms|ece|shtml)$", "", best, flags=re.I)
+    best = re.sub(r"^\d+[.\-_]", "", best)            # "/news/26584775.christine-jardine-..." (Newsquest-style ids)
     words = [w for w in re.split(r"[-_+]+", best) if w and not re.fullmatch(r"[0-9a-f]{6,}|\d+", w, flags=re.I)]
     if len([w for w in words if re.fullmatch(r"[A-Za-z']{2,}", w)]) < 4:
         return None
