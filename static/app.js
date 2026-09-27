@@ -1079,7 +1079,7 @@ function openAbout() {
       <h3>Automatic layers</h3>
       <p>News heat, incidents and local news come from GDELT, which places news on the map by machine: useful for spotting activity, often wrong in the detail. Military aircraft and ships are public transponder data, shown at least 20 minutes late, and only for those that broadcast.</p>
       <h3>Found a mistake?</h3>
-      <p>Use <b>⚑ Report a problem</b> on the item. Reports go straight to the maintainer. You can also join the <a href="https://discord.gg/GUFgYFJxr" target="_blank" rel="noopener">Discord</a>.</p>
+      <p>Use <b>⚑ Report a problem</b> on the item. Reports go straight to the maintainer. You can also join the <a href="https://discord.gg/f2esHm5fr" target="_blank" rel="noopener">Discord</a>.</p>
     </div>`;
   r.querySelector(".back").addEventListener("click", closeReader);
 }
