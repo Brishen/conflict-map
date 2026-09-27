@@ -22,6 +22,7 @@ from .db import all_conflicts, db, get_state, store_report
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
 log = logging.getLogger("server")
+logging.getLogger("httpx").setLevel(logging.WARNING)     # its per-request lines would print the Discord webhook URL (a secret)
 app = FastAPI(title="conflict-map")
 _lock = threading.Lock()
 _agg_cache: dict = {}
