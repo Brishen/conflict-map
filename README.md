@@ -124,8 +124,11 @@ its number and quote appear in the article. Refreshed per conflict at most every
   non-commercial only (CC BY-NC-SA).
 - **Top headlines** (desktop, under Live TV): `/api/headlines` groups the last 12 hours of feed
   headlines into stories by shared key words and ranks them by how many outlets ran them
-  (`app/headlines.py`; UN, ICRC and Bellingcat feeds don't count). Clicking one opens the reader.
-  In good news mode only headlines that pass the local-news filter are listed.
+  (`app/headlines.py`; UN, ICRC and Bellingcat feeds don't count). Clicking one opens the reader
+  and flies to the place it names (gazetteer city or region, else the country). The edge colour is the
+  status of the tracked conflict it belongs to (when one of its articles is already a source of that
+  conflict; a button opens it), else a keyword topic in the local news colours. In good news mode only
+  headlines that pass the local-news filter are listed.
 
 ## Good news mode
 

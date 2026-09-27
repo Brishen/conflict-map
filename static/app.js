@@ -572,6 +572,7 @@ map.on("load", async () => {
   let goodPref = null; try { goodPref = localStorage.getItem("goodNews"); } catch (_) {}
   if (hashParam("good") === "1" || (hashParam("good") !== "0" && goodPref === "1")) setGood(true);
   await load();
+  startHeadlines();
   await loadAdvice(); setInterval(loadAdvice, 3600000);
   loadTerritory(); setInterval(loadTerritory, 3600000);   // before a shared #country= view renders its advice box
   const shared = hashParam("c"), sharedCountry = hashParam("country");
@@ -2058,7 +2059,10 @@ new ResizeObserver(placeTv).observe($("#panel"));
 }
 
 /* ---------- top headlines under the TV: the stories the most outlets are running; they open in the reader ---------- */
-const NEWS = { items: [] };
+/* edge colour: the status of the tracked conflict the story belongs to, else the local news topic colours */
+const NEWS = { items: [], ping: null };
+const PIN = `<svg viewBox="0 0 16 16" width="10" height="10" aria-hidden="true"><path fill="currentColor" d="M8 1a5 5 0 0 0-5 5c0 3.6 5 9 5 9s5-5.4 5-9a5 5 0 0 0-5-5Zm0 7a2 2 0 1 1 0-4 2 2 0 0 1 0 4Z"/></svg>`;
+function headlineConflict(h) { return h.conflict && STATE && STATE.conflicts ? STATE.conflicts.find(c => c.id === h.conflict) : null; }
 async function loadHeadlines() {
   let items;
   try { const r = await fetch(`/api/headlines?good=${GOOD.on ? 1 : 0}`); if (!r.ok) throw new Error(r.status); items = (await r.json()).items || []; }
@@ -2066,27 +2070,52 @@ async function loadHeadlines() {
   NEWS.items = items;
   $("#news").hidden = false;
   $("#news .news-h").textContent = GOOD.on ? "Good news headlines" : "Top headlines";
+  $("#news-foot-key").hidden = GOOD.on;
   $("#news-list").innerHTML = items.map((h, i) => {
     const others = h.outlets.filter(o => o !== h.outlet);
-    return `<li tabindex="0" role="button" data-i="${i}"><div class="t">${esc(h.title)}</div>
-      <div class="m">${esc(h.outlet)} · ${esc(ago(h.published))}${others.length ? ` · <span class="n" title="Also: ${esc(others.join(", "))}">${h.outlets.length} outlets</span>` : ""}</div></li>`;
+    const c = GOOD.on ? null : headlineConflict(h);
+    const edge = c ? (STATUS_COLOR[c.status] || STATUS_COLOR.active) : (LOCAL_COLOR[h.topic] || LOCAL_COLOR.other);
+    const tip = c ? `${c.name}: ${STATUS_LABEL[c.status] || c.status}` : { violence: "violence & crime", tension: "protest & tension", good: "good news" }[h.topic] || "other news";
+    return `<li tabindex="0" role="button" data-i="${i}" style="--hl:${edge}" title="${esc(h.place ? `Opens the article and shows ${h.place.name} on the map` : "Opens the article")}">
+      <div class="t">${esc(h.title)}</div>
+      <div class="m"><span class="tp" title="${esc(tip)}"></span>${esc(h.outlet)} · ${esc(ago(h.published))}${others.length ? ` · <span class="n" title="Also: ${esc(others.join(", "))}">${h.outlets.length} outlets</span>` : ""}${h.place ? ` · <span class="pl">${PIN}${esc(h.place.name)}</span>` : ""}</div>
+      ${c ? `<button class="hl-c" data-c="${esc(c.id)}" style="--st:${STATUS_COLOR[c.status] || STATUS_COLOR.active}" title="Show this conflict">${esc(c.name)} ›</button>` : ""}</li>`;
   }).join("") || `<li class="empty">No headlines to show right now.</li>`;
+}
+function pingPlace(p) {
+  if (NEWS.ping) NEWS.ping.remove();
+  const el = document.createElement("div"); el.className = "hl-ping";
+  NEWS.ping = new maplibregl.Marker({ element: el }).setLngLat([p.lon, p.lat]).addTo(map);
+  const mine = NEWS.ping; setTimeout(() => { if (NEWS.ping === mine) { mine.remove(); NEWS.ping = null; } }, 7000);
 }
 function openHeadline(el) {
   const h = NEWS.items[+el.dataset.i]; if (!h) return;
   const others = h.outlets.filter(o => o !== h.outlet);
   openArticle(h.link, { title: h.title, source: h.outlet, context: others.length ? `Also running this story: ${esc(others.join(", "))}` : "" });
+  if (h.place) {
+    map.flyTo({ center: [h.place.lon, h.place.lat], zoom: h.place.zoom, speed: 0.9, curve: 1.3, essential: true, padding: sheetPadding() });
+    pingPlace(h.place);
+  }
 }
-$("#news-list").addEventListener("click", (e) => { const li = e.target.closest("li[data-i]"); if (li) openHeadline(li); });
-$("#news-list").addEventListener("keydown", (e) => { const li = e.target.closest("li[data-i]"); if (li && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); openHeadline(li); } });
+$("#news-list").addEventListener("click", (e) => {
+  const b = e.target.closest(".hl-c"); if (b) { e.stopPropagation(); select(b.dataset.c); return; }
+  const li = e.target.closest("li[data-i]"); if (li) openHeadline(li);
+});
+$("#news-list").addEventListener("keydown", (e) => {
+  if (e.target.closest(".hl-c")) return;                                   // the conflict button handles its own keys
+  const li = e.target.closest("li[data-i]"); if (li && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); openHeadline(li); }
+});
 function setNewsOpen(on) { $("#news").classList.toggle("shut", !on); $("#news-toggle").setAttribute("aria-expanded", on); }
 $("#news-toggle").addEventListener("click", () => {
   const on = $("#news").classList.contains("shut"); setNewsOpen(on);
   try { localStorage.setItem("news.open", on ? "1" : "0"); } catch (_) {}
 });
 { let pref = null; try { pref = localStorage.getItem("news.open"); } catch (_) {} setNewsOpen(pref !== "0"); }
-if (!isMobile()) { loadHeadlines(); setInterval(loadHeadlines, 5 * 60000); }
-else mobileMQ.addEventListener("change", function once() { if (!isMobile()) { mobileMQ.removeEventListener("change", once); loadHeadlines(); setInterval(loadHeadlines, 5 * 60000); } });
+/* started after the first data load, so headlines can be matched to the conflicts */
+function startHeadlines() {
+  if (!isMobile()) { loadHeadlines(); setInterval(loadHeadlines, 5 * 60000); }
+  else mobileMQ.addEventListener("change", function once() { if (!isMobile()) { mobileMQ.removeEventListener("change", once); startHeadlines(); } });
+}
 
 /* ---------- layers menu, legend (on phones only one of them is open at a time), bottom sheet ---------- */
 function toggleMenu(on = !document.body.classList.contains("menu-open")) {
