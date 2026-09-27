@@ -38,7 +38,8 @@ body { display: flex; flex-direction: column; overflow: hidden; }
 .brand .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--st-escalating); box-shadow: 0 0 0 0 rgba(208,59,59,.6); animation: pulse 2s infinite; }
 @keyframes pulse { 0% { box-shadow: 0 0 0 0 rgba(208,59,59,.6);} 70% { box-shadow: 0 0 0 10px rgba(208,59,59,0);} 100% { box-shadow: 0 0 0 0 rgba(208,59,59,0);} }
 /* layers: a button at the map's top left; open, a drawer runs down the left side of the map */
-#menu-btn { position: absolute; top: 12px; left: 12px; z-index: 8; display: inline-flex; align-items: center; gap: 8px;
+#map-top { position: absolute; top: 12px; left: 12px; z-index: 8; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; max-width: calc(100% - 24px); }
+#menu-btn { display: inline-flex; align-items: center; gap: 8px;
             padding: 8px 14px; font-size: 13.5px; font-weight: 600; color: var(--ink); background: rgba(26,26,25,.92);
             border: 1px solid var(--border); border-radius: 8px; box-shadow: 0 6px 18px rgba(0,0,0,.45); }
 #menu-btn svg { width: 16px; height: 16px; }
@@ -399,7 +400,9 @@ body:not(.legend-open) #legend .row { display: none; }
   .brand .gh span { display: none; }
   .mobile-only { display: inline-flex; align-items: center; justify-content: center; }
   #top { flex-wrap: wrap; }
-  #menu-btn { top: 10px; left: max(10px, env(safe-area-inset-left)); min-height: 36px; }
+  #map-top { top: 10px; left: max(10px, env(safe-area-inset-left)); max-width: calc(100% - 110px); }   /* the key tab sits top-right */
+  #menu-btn { min-height: 36px; }
+  #modes button { padding: 6px 9px; }
   .status { order: 3; flex-basis: 100%; margin-left: 0; min-width: 0; text-align: left; font-size: 11px;
             white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
@@ -465,7 +468,11 @@ body:not(.legend-open) #legend .row { display: none; }
 
 /* ---------- good news mode ---------- */
 .sun { display: inline-block; width: 9px; height: 9px; border-radius: 50%; background: #5fd38d; flex: none; }
-#good-btn { display: inline-flex; align-items: center; gap: 7px; }
+#modes { display: inline-flex; background: rgba(26,26,25,.92); border: 1px solid var(--border); border-radius: 8px; padding: 3px; gap: 2px; box-shadow: 0 6px 18px rgba(0,0,0,.45); }
+#modes button { display: inline-flex; align-items: center; gap: 7px; background: none; border: 1px solid transparent; border-radius: 6px; padding: 5px 11px; font-size: 13px; color: var(--ink-2); white-space: nowrap; }
+#modes button:hover { color: var(--ink); border-color: var(--border); }
+.news-ico { width: 9px; height: 9px; border-radius: 50%; background: var(--st-escalating); flex: none; }
+#news-btn[aria-pressed="true"] { border-color: var(--st-escalating); background: rgba(208,59,59,.14); color: var(--ink); }
 #good-btn[aria-pressed="true"] { border-color: #5fd38d; background: rgba(95,211,141,.14); color: var(--ink); }
 #good-btn[aria-pressed="true"] .sun { box-shadow: 0 0 0 3px rgba(95,211,141,.25); }
 body:not(.good-mode) #legend .good-only, body.good-mode #legend .bad-only { display: none; }
@@ -480,13 +487,9 @@ body.good-mode .mk::after { animation: none; opacity: 0; }
 #list .gdev .date { color: var(--muted); font-size: 12px; margin-left: auto; font-variant-numeric: tabular-nums; }
 #list .glocal { padding: 6px 14px; border-bottom: 1px dashed var(--border); }
 #list .empty.small { padding: 8px 14px; }
-@media (max-width: 760px) {
-  #good-btn { display: none; }    /* no room in the phone header: the switch in Layers does it */
-}
 
 /* ---------- cyber mode ---------- */
 .chip-ico { width: 10px; height: 10px; flex: none; border: 1.5px solid #38d9f5; border-radius: 2px; box-shadow: inset 0 0 0 2px var(--surface), inset 0 0 0 5px #38d9f5; }
-#cyber-btn { display: inline-flex; align-items: center; gap: 7px; }
 #cyber-btn[aria-pressed="true"] { border-color: #38d9f5; background: rgba(56,217,245,.13); color: var(--ink); }
 body:not(.cyber-mode) #legend .cyber-only, body.cyber-mode #legend .row:not(.cyber-only) { display: none; }
 body.cyber-mode .controls label:has(:disabled) { opacity: .4; }
@@ -512,11 +515,9 @@ body.cyber-mode .controls label:has(:disabled) { opacity: .4; }
 .cy-pair .v { margin-left: auto; color: var(--ink); font-variant-numeric: tabular-nums; }
 .cy-note { font-size: 11.5px; color: var(--muted); line-height: 1.4; margin-top: 6px; }
 .cy-n { color: var(--ink-2); margin-left: 4px; }
-@media (max-width: 760px) { #cyber-btn { display: none; } }   /* phones: the switch in Layers */
 
 /* ---------- weather mode ---------- */
 .drop-ico { width: 9px; height: 9px; flex: none; background: #4da3ff; border-radius: 50% 0 50% 50%; transform: rotate(-45deg); }
-#weather-btn { display: inline-flex; align-items: center; gap: 7px; }
 #weather-btn[aria-pressed="true"] { border-color: #4da3ff; background: rgba(77,163,255,.14); color: var(--ink); }
 body:not(.weather-mode) #legend .weather-only, body.weather-mode #legend .row:not(.weather-only) { display: none; }
 body.weather-mode .controls label:has(:disabled) { opacity: .4; }
@@ -532,7 +533,6 @@ body.weather-mode .controls label:has(:disabled) { opacity: .4; }
 .wx-dot { flex: none; width: 10px; height: 10px; border-radius: 50%; border: 2px solid; align-self: center; }
 .wx-lab { color: var(--muted); width: 64px; flex: none; }
 .cy-meta a { color: var(--ink-2); }
-@media (max-width: 760px) { #weather-btn { display: none; } }   /* phones: the switch in Layers */
 
 /* ---------- "new version available" notice ---------- */
 #update-note { position: absolute; top: 12px; left: 50%; transform: translateX(-50%); z-index: 20; display: flex; align-items: center; gap: 10px;

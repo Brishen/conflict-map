@@ -132,7 +132,7 @@ its number and quote appear in the article. Refreshed per conflict at most every
 
 ## Good news mode
 
-The "Good news" button (in Layers on phones) hides everything that is bad news: attacks,
+The "Good news" button at the top of the map hides everything that is bad news: attacks,
 incidents, news heat, GDELT links, military aircraft and ships, travel advice, casualty
 figures and consequences. What is left:
 
@@ -191,7 +191,7 @@ are what usually shows up.
 
 ## Cyber mode
 
-The "Cyber" button (in Layers on phones) swaps the physical conflicts for the virtual ones (`app/cyber.py`,
+The "Cyber" button at the top of the map swaps the physical conflicts for the virtual ones (`app/cyber.py`,
 `/api/cyber`). Every source is shown with its real delay: none of this is a packet-by-packet live feed.
 
 - **Attacks between countries**: Cloudflare Radar's top origin → target pairs for network-layer (DDoS) and
@@ -211,11 +211,11 @@ The "Cyber" button (in Layers on phones) swaps the physical conflicts for the vi
 
 ## Weather mode
 
-The "Weather" button (in Layers on phones) swaps the conflicts for the weather (`app/weather.py`, `/api/weather`).
+The "Weather" button at the top of the map swaps the conflicts for the weather (`app/weather.py`, `/api/weather`).
 No keys needed.
 
 - **Rain**: RainViewer's radar mosaic, with a satellite estimate where there is no radar, loaded by the page
-  straight from RainViewer; the last two hours play as a loop.
+  straight from RainViewer; the latest frame only (a loop runs into RainViewer's rate limit).
 - **Storms, floods, wildfires**: GDACS (UN / European Commission) current events with their alert level;
   tropical cyclones with their track and forecast cone.
 - **Conditions**: Open-Meteo's current weather at every capital, and at each conflict's epicentre with the next

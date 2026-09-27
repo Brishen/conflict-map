@@ -1667,7 +1667,7 @@ function setGood(on) {
   if (on && WEATHER.on) setWeather(false);
   GOOD.on = on;
   document.body.classList.toggle("good-mode", on);
-  $("#good-btn").setAttribute("aria-pressed", on); $("#tg-good").checked = on;
+  syncModes();
   try { localStorage.setItem("goodNews", on ? "1" : "0"); } catch (_) {}
   if (on) {
     GOOD.stash = {};
@@ -1710,8 +1710,7 @@ function renderGoodList() {
     openLocalFeature({ properties: i });
   }));
 }
-$("#good-btn").addEventListener("click", () => setGood(!GOOD.on));
-$("#tg-good").addEventListener("change", (e) => setGood(e.target.checked));
+$("#good-btn").addEventListener("click", () => setGood(true));
 
 /* ---------- cyber mode: the virtual side of the wars ---------- */
 /* attacks between countries (Cloudflare Radar, last 24 h), ransomware claims (ransomware.live: group, sector,
@@ -1879,7 +1878,7 @@ function setCyber(on) {
   if (on && WEATHER.on) setWeather(false);
   CYBER.on = on;
   document.body.classList.toggle("cyber-mode", on);
-  $("#cyber-btn").setAttribute("aria-pressed", on); $("#tg-cyber").checked = on;
+  syncModes();
   try { localStorage.setItem("cyberMode", on ? "1" : "0"); } catch (_) {}
   if (on) {
     CYBER.stash = {};
@@ -1898,14 +1897,13 @@ function setCyber(on) {
   syncLegend(); saveSettings();
   if (GOOD.raw) { STATE = viewOf(GOOD.raw); LIST.status = ""; render(); }
 }
-$("#cyber-btn").addEventListener("click", () => setCyber(!CYBER.on));
-$("#tg-cyber").addEventListener("change", (e) => setCyber(e.target.checked));
+$("#cyber-btn").addEventListener("click", () => setCyber(true));
 
 /* ---------- weather mode: the weather over the world and over the fighting ---------- */
 /* rain from RainViewer (radar plus a satellite estimate where there is no radar, last 2 h, loaded straight from
    RainViewer), storms, floods and wildfires from GDACS, and the current weather at every capital and at each
    conflict's epicentre from Open-Meteo (fetched hourly by the pipeline). */
-const WEATHER = { on: false, data: null, stash: null, timer: null, frames: [], frame: 0, anim: null, radarTimer: null };
+const WEATHER = { on: false, data: null, stash: null, timer: null, radar: null, radarTimer: null };
 const WEATHER_HIDES = [...GOOD_HIDES, "tg-arcs", "tg-local"];
 const WEATHER_LAYERS = ["wx-cone", "wx-track", "wx-track-fc", "wx-hazard", "wx-storm-label", "wx-cap", "wx-cap-t", "wx-front", "wx-front-t"];
 const WX_ALERT = { green: "#5fd38d", orange: "#ff9a3d", red: "#ff4d4d" };
@@ -2010,48 +2008,25 @@ function renderWeather() {
     geometry: { type: "Point", coordinates: [w.lon, w.lat] }, properties: { i, t: w.t, label: `${w.name}: ${deg(w.t)} ${wxText(w.code)}` } })).filter(Boolean) });
   if (STATE && !selected && !selectedCountry && !readerOpen) renderWeatherList();
 }
-/* ---- rain: RainViewer's last two hours, played as a loop (every other 10-minute frame) */
+/* ---- rain: RainViewer's latest frame only. A loop loads every tile once per frame, which runs into
+   RainViewer's rate limit (429) within minutes and leaves frames blank, so the rain flickers on and off */
 async function loadRadar() {
   let j;
   try { const r = await fetch("https://api.rainviewer.com/public/weather-maps.json"); if (!r.ok) throw new Error(r.status); j = await r.json(); }
   catch (_) { return; }
-  const past = (j.radar?.past || []).filter((_, i, a) => (a.length - 1 - i) % 2 === 0);
-  if (!past.length || past.at(-1).path === WEATHER.frames.at(-1)?.path) return;
-  clearRadar();
-  const before = map.getLayer("wx-cone") ? "wx-cone" : undefined;
-  WEATHER.frames = past.map((f, i) => {
-    const id = `wx-radar-${i}`;
-    map.addSource(id, { type: "raster", tiles: [`${j.host}${f.path}/256/{z}/{x}/{y}/2/1_1.png`], tileSize: 256, maxzoom: 7,
-                        attribution: '<a href="https://www.rainviewer.com" target="_blank" rel="noopener">RainViewer</a>' });
-    map.addLayer({ id, type: "raster", source: id, layout: { visibility: WEATHER.on ? "visible" : "none" },
-                   paint: { "raster-opacity": 0, "raster-opacity-transition": { duration: 0 }, "raster-fade-duration": 0 } }, before);
-    return { id, time: f.time, path: f.path };
-  });
-  WEATHER.frame = WEATHER.frames.length - 1;
-  showFrame(WEATHER.frame);
-  radarPlay(WEATHER.on);
-}
-function clearRadar() {
-  for (const f of WEATHER.frames) { if (map.getLayer(f.id)) map.removeLayer(f.id); if (map.getSource(f.id)) map.removeSource(f.id); }
-  WEATHER.frames = [];
-}
-function showFrame(n) {
-  WEATHER.frames.forEach((f, i) => map.setPaintProperty(f.id, "raster-opacity", i === n ? 0.75 : 0));
-  const f = WEATHER.frames[n]; if (!f) return;
-  const t = new Date(f.time * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-  $("#wx-radar-time").textContent = `${t}${n === WEATHER.frames.length - 1 ? " (latest)" : ""}`;
-}
-function radarPlay(on) {
-  clearInterval(WEATHER.anim); WEATHER.anim = null;
-  if (!on || !WEATHER.frames.length) return;
-  let hold = 0;
-  WEATHER.anim = setInterval(() => {
-    if (document.hidden) return;
-    if (WEATHER.frame === WEATHER.frames.length - 1 && hold++ < 4) return;   // linger on the latest frame
-    hold = 0;
-    WEATHER.frame = (WEATHER.frame + 1) % WEATHER.frames.length;
-    showFrame(WEATHER.frame);
-  }, 600);
+  const f = (j.radar?.past || []).at(-1);
+  if (!f || f.path === WEATHER.radar?.path) return;
+  const tiles = [`${j.host}${f.path}/256/{z}/{x}/{y}/2/1_1.png`];
+  const src = map.getSource("wx-radar");
+  if (src) src.setTiles(tiles);
+  else {
+    map.addSource("wx-radar", { type: "raster", tiles, tileSize: 256, maxzoom: 7,
+                                attribution: '<a href="https://www.rainviewer.com" target="_blank" rel="noopener">RainViewer</a>' });
+    map.addLayer({ id: "wx-radar", type: "raster", source: "wx-radar", layout: { visibility: WEATHER.on ? "visible" : "none" },
+                   paint: { "raster-opacity": 0.75 } }, map.getLayer("wx-cone") ? "wx-cone" : undefined);
+  }
+  WEATHER.radar = f;
+  $("#wx-radar-time").textContent = new Date(f.time * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 }
 function renderWeatherList() {
   $("#reader").hidden = true; readerOpen = false;
@@ -2089,7 +2064,7 @@ function renderWeatherList() {
       ${ext("coldest", sorted(c => -c.t), c => `${esc(c.name)} ${deg(c.t)}`)}
       ${ext("windiest", sorted(c => c.gust), c => `${esc(c.name)} gusts ${Math.round(c.gust)} km/h`)}
       ${ext("wettest", sorted(c => c.rain || null), c => `${esc(c.name)} ${c.rain} mm / 15 min`)}
-      <div class="cy-note">Open-Meteo, updated ${esc(ago(d.conditions.updated))}. Storms, floods and fires: GDACS (UN and European Commission), updated ${esc(ago(d.hazards.updated))}. Rain: RainViewer, radar and satellite, last 2 hours.</div></div>`;
+      <div class="cy-note">Open-Meteo, updated ${esc(ago(d.conditions.updated))}. Storms, floods and fires: GDACS (UN and European Commission), updated ${esc(ago(d.hazards.updated))}. Rain: RainViewer, radar and satellite, latest frame.</div></div>`;
   $("#weather-off").addEventListener("click", () => setWeather(false));
   document.querySelectorAll("#list .wx-front, #list .wx-hz").forEach(el => el.addEventListener("click", (e) => {
     if (e.target.closest("a")) return;
@@ -2108,7 +2083,7 @@ function setWeather(on) {
   if (on && CYBER.on) setCyber(false);
   WEATHER.on = on;
   document.body.classList.toggle("weather-mode", on);
-  $("#weather-btn").setAttribute("aria-pressed", on); $("#tg-weather").checked = on;
+  syncModes();
   try { localStorage.setItem("weatherMode", on ? "1" : "0"); } catch (_) {}
   if (on) {
     WEATHER.stash = {};
@@ -2119,19 +2094,23 @@ function setWeather(on) {
     for (const [id, v] of Object.entries(stash)) setControl(id, v);
   }
   for (const id of WEATHER_HIDES) document.getElementById(id).disabled = on;
-  for (const id of [...WEATHER_LAYERS, ...WEATHER.frames.map(f => f.id)]) if (map.getLayer(id)) map.setLayoutProperty(id, "visibility", on ? "visible" : "none");
-  radarPlay(on);
+  for (const id of [...WEATHER_LAYERS, "wx-radar"]) if (map.getLayer(id)) map.setLayoutProperty(id, "visibility", on ? "visible" : "none");
   clearInterval(WEATHER.timer); WEATHER.timer = null; clearInterval(WEATHER.radarTimer); WEATHER.radarTimer = null;
   if (on) {
     loadWeather(); WEATHER.timer = setInterval(loadWeather, 10 * 60000);
-    loadRadar(); WEATHER.radarTimer = setInterval(loadRadar, 5 * 60000);
+    loadRadar(); WEATHER.radarTimer = setInterval(loadRadar, 10 * 60000);
   }
   if (!$("#news").hidden) loadHeadlines();
   syncLegend(); saveSettings();
   if (GOOD.raw) { STATE = viewOf(GOOD.raw); LIST.status = ""; render(); }
 }
-$("#weather-btn").addEventListener("click", () => setWeather(!WEATHER.on));
-$("#tg-weather").addEventListener("change", (e) => setWeather(e.target.checked));
+$("#weather-btn").addEventListener("click", () => setWeather(true));
+/* the mode buttons on the map: News is none of the others */
+function syncModes() {
+  const cur = GOOD.on ? "good" : CYBER.on ? "cyber" : WEATHER.on ? "weather" : "news";
+  for (const m of ["news", "good", "cyber", "weather"]) $(`#${m}-btn`).setAttribute("aria-pressed", m === cur);
+}
+$("#news-btn").addEventListener("click", () => { setGood(false); setCyber(false); setWeather(false); });
 
 /* ---------- strikes ---------- */
 let strikeAnim = null;      // {items:[{path, color, id, hasPath}], start}

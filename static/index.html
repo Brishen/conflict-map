@@ -36,25 +36,28 @@
   </div>
   <div class="status" id="status">loading…</div>
   <button id="reports-btn" hidden title="Problem reports from visitors (only on this home viewer)">⚑ Reports <span class="n"></span></button>
-  <button id="good-btn" aria-pressed="false" aria-label="Good news mode" title="Good news mode: hide attacks, fighting and crime; show only progress towards peace and upbeat local stories"><span class="sun" aria-hidden="true"></span><span>Good news</span></button>
-  <button id="cyber-btn" aria-pressed="false" aria-label="Cyber mode" title="Cyber mode: the attacks that don't show up as explosions. Attacks between countries, ransomware claims, internet outages and hacks in the news"><span class="chip-ico" aria-hidden="true"></span><span>Cyber</span></button>
-  <button id="weather-btn" aria-pressed="false" aria-label="Weather mode" title="Weather mode: rain, storms, floods and wildfires, and the weather where the fighting is"><span class="drop-ico" aria-hidden="true"></span><span>Weather</span></button>
   <button id="tv-btn" aria-expanded="false" aria-controls="tv" title="Watch live TV news channels"><span class="live-dot"></span><span class="long">Live TV</span><span class="short">TV</span></button>
 </header>
 
 <div id="main">
   <div id="map"></div>
   <!-- layers: a button at the map's top left that opens a drawer down the left side -->
+  <div id="map-top">
   <button id="menu-btn" aria-expanded="false" aria-controls="controls" title="Map layers &amp; settings">
     <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path fill="currentColor" d="M8 1 1 4.5 8 8l7-3.5L8 1Zm-5.6 6.2L1 7.9 8 11.4l7-3.5-1.4-.7L8 10 2.4 7.2Zm0 3.4L1 11.3 8 14.8l7-3.5-1.4-.7L8 13.4l-5.6-2.8Z"/></svg>
     <span>Layers</span></button>
+  <!-- what the map shows: one mode at a time -->
+  <div id="modes" role="group" aria-label="What the map shows">
+    <button id="news-btn" aria-pressed="true" title="The conflicts in the news: attacks, fighting and where they are"><span class="news-ico" aria-hidden="true"></span><span>News</span></button>
+    <button id="good-btn" aria-pressed="false" title="Good news mode: hide attacks, fighting and crime; show only progress towards peace and upbeat local stories"><span class="sun" aria-hidden="true"></span><span>Good news</span></button>
+    <button id="cyber-btn" aria-pressed="false" title="Cyber mode: the attacks that don't show up as explosions. Attacks between countries, ransomware claims, internet outages and hacks in the news"><span class="chip-ico" aria-hidden="true"></span><span>Cyber</span></button>
+    <button id="weather-btn" aria-pressed="false" title="Weather mode: rain, storms, floods and wildfires, and the weather where the fighting is"><span class="drop-ico" aria-hidden="true"></span><span>Weather</span></button>
+  </div>
+  </div>
   <div class="controls" id="controls" role="dialog" aria-label="Layers and settings">
     <div class="controls-h"><span>Layers &amp; settings</span><button id="menu-close" class="x" aria-label="Close layers" title="Close">×</button></div>
     <div class="grp">
       <div class="grp-h">View</div>
-      <label class="toggle" title="Hide attacks, fighting, crime and disasters; show only progress towards peace and upbeat local stories"><input type="checkbox" id="tg-good" autocomplete="off"> Good news only</label>
-      <label class="toggle" title="Attacks between countries, ransomware claims, internet outages and hacks in the news, instead of the physical conflicts"><input type="checkbox" id="tg-cyber" autocomplete="off"> Cyber mode</label>
-      <label class="toggle" title="Rain, storms, floods and wildfires, and the weather at the capitals and where the fighting is, instead of the conflicts"><input type="checkbox" id="tg-weather" autocomplete="off"> Weather mode</label>
       <label class="toggle"><input type="checkbox" id="tg-globe" checked> Globe</label>
       <label class="toggle"><input type="checkbox" id="tg-rotate"> Spin</label>
       <label class="toggle" title="Live day/night from the sun's position"><input type="checkbox" id="tg-night" checked> Day/night</label>
@@ -121,7 +124,7 @@
     <div class="row cyber-only"><span class="line cy l3"></span> DDoS attacks <span class="line cy l7"></span> web attacks <span class="note">(Cloudflare Radar, share of traffic, last 24 h; width = share)</span></div>
     <div class="row cyber-only"><span class="line cy news"></span> attack in the news, attacker → victim <span class="mkk cy-inc"></span> victim country</div>
     <div class="row cyber-only"><span class="mkk cy-ransom"></span> ransomware claims, last 7 days <span class="note">(ransomware.live)</span> <span class="terr-sw cy-out"></span> internet outage <span class="note">(IODA)</span></div>
-    <div class="row weather-only"><span class="ramp wx-rain"></span> rain, light → heavy <span class="note">(<a href="https://www.rainviewer.com" target="_blank" rel="noopener">RainViewer</a> radar and satellite, last 2 h looped, now showing <span id="wx-radar-time">…</span>)</span></div>
+    <div class="row weather-only"><span class="ramp wx-rain"></span> rain, light → heavy <span class="note">(<a href="https://www.rainviewer.com" target="_blank" rel="noopener">RainViewer</a> radar and satellite, as of <span id="wx-radar-time">…</span>)</span></div>
     <div class="row weather-only"><span class="ramp wx-temp"></span> temperature at capitals, −25° → 45° <span class="mkk wx-front"></span> weather where a conflict is <span class="note">(Open-Meteo, hourly)</span></div>
     <div class="row weather-only"><span class="mkk wx-k" style="background:#e6e4da"></span> cyclone, track and forecast cone <span class="mkk wx-k" style="background:#4da3ff"></span> flood <span class="mkk wx-k" style="background:#ff7a1a"></span> wildfire; ring = <span style="color:#5fd38d">green</span> / <span style="color:#ff9a3d">orange</span> / <span style="color:#ff4d4d">red</span> alert <span class="note">(GDACS)</span></div>
     <div class="row bad-only"><span class="sev s5"></span><span class="sev s3"></span><span class="sev s1"></span> conflict severity</div>
