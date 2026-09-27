@@ -569,6 +569,7 @@ map.on("load", async () => {
 
   await loadCountries();
   restoreSettings();          // before the first data load so the 24h/48h window is right
+  $("#tg-sat").dispatchEvent(new Event("change"));   // the style starts on the relief; switch to the imagery if it's on
   let goodPref = null; try { goodPref = localStorage.getItem("goodNews"); } catch (_) {}
   if (hashParam("good") === "1" || (hashParam("good") !== "0" && goodPref === "1")) setGood(true);
   await load();
@@ -1167,7 +1168,8 @@ function renderCountry() {
 const SETTINGS_KEY = "conflictMapSettings";
 const SETTING_IDS = ["tg-globe", "tg-rotate", "tg-night", "tg-sat", "tg-territory", "tg-heat", "tg-arcs", "tg-gdelt-arcs", "tg-strikes",
                      "tg-incidents", "tg-aircraft", "tg-ships", "tg-local", "tg-advice", "window", "sort"];
-const SETTINGS_VERSION = 2;     // 2: spin off by default; a saved "spin on" from before was just the old default
+const SETTINGS_VERSION = 3;     // 2: spin off by default; a saved "spin on" from before was just the old default
+                                // 3: satellite on by default; a saved "satellite off" from before was the old default
 function saveSettings() {
   const out = {};
   for (const id of SETTING_IDS) { const el = document.getElementById(id); if (el) out[id] = el.type === "checkbox" ? el.checked : el.value; }
@@ -1184,6 +1186,7 @@ function restoreSettings() {
     el.addEventListener("change", saveSettings);
     if (!saved || !(id in saved)) continue;
     if (id === "tg-rotate" && (sharedView || !(saved.v >= 2))) continue;   // shared links stay still; pre-v2 "on" was the old default
+    if (id === "tg-sat" && !(saved.v >= 3)) continue;
     const cur = el.type === "checkbox" ? el.checked : el.value;
     if (cur === saved[id]) continue;
     if (el.type === "checkbox") el.checked = saved[id]; else el.value = saved[id];
