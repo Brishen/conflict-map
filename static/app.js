@@ -3,6 +3,9 @@ const STATUS_COLOR = {
   escalating: "#d03b3b", active: "#ec835a", "de-escalating": "#fab219",
   ceasefire: "#0ca30c", frozen: "#898781",
 };
+/* good news mode: raw = the full /api/state, local = the good local stories in view,
+   stash = the layer settings good news mode switched off, to put back afterwards */
+const GOOD = { on: false, raw: null, local: [], stash: null };
 const SIDE_COLOR = { A: "#3987e5", B: "#d95926", other: "#9085e9" };
 const WEAPON_COLOR = { missile: "#ffffff", drone: "#eda100", airstrike: "#e87ba4", artillery: "#c3c2b7", shelling: "#c3c2b7",
                        ground: "#e34948", bombing: "#f2a33a", naval: "#1baf7a", other: "#9085e9" };
@@ -395,7 +398,7 @@ map.on("load", async () => {
     layout: { visibility: "none", "icon-image": "news-sq", "icon-size": sqSize, "icon-allow-overlap": true, "icon-ignore-placement": true } }, "capital-dots");
   map.addLayer({ id: "local-news", type: "symbol", source: "local-news", minzoom: LOCAL_MINZOOM,
     layout: { visibility: "none", "icon-image": "news-sq-fill", "icon-size": sqSize, "icon-allow-overlap": true, "icon-ignore-placement": true },
-    paint: { "icon-color": ["match", ["get", "topic"], "violence", LOCAL_COLOR.violence, "protest", LOCAL_COLOR.tension, "tension", LOCAL_COLOR.tension, LOCAL_COLOR.other] },
+    paint: { "icon-color": ["match", ["get", "topic"], "violence", LOCAL_COLOR.violence, "protest", LOCAL_COLOR.tension, "tension", LOCAL_COLOR.tension, "good", LOCAL_COLOR.good, LOCAL_COLOR.other] },
   }, "capital-dots");
   map.on("mousemove", "local-news", (e) => {
     const tip = $("#tooltip"); tip.innerHTML = localHtml(e.features[0].properties);
@@ -506,11 +509,11 @@ map.on("load", async () => {
     const f = e.features[0]; const iso = f.properties.ADM0_A3;
     const h = STATE?.gdelt.heat[iso];
     const inv = STATE ? STATE.conflicts.filter(c => c.parties.some(p => norm(p.country) === iso)).map(c => c.name) : [];
-    tip.innerHTML = `<b>${esc(f.properties.NAME_EN || f.properties.NAME)}</b>` +
-      (h ? `<br>${h.events} conflict events · ${h.mentions} mentions (${STATE.gdelt.hours}h)` : "<br>no GDELT conflict events") +
+    tip.innerHTML = `<b>${esc(f.properties.NAME_EN || f.properties.NAME)}</b>` + (GOOD.on ? "" :
+      h ? `<br>${h.events} conflict events · ${h.mentions} mentions (${STATE.gdelt.hours}h)` : "<br>no GDELT conflict events") +
       (inv.length ? `<br>involved in: ${esc(inv.join(", "))}` : "") +
       (inv.length > 1 ? `<br><span style="opacity:.6">click to see all ${inv.length} and who is on which side</span>` : "") +
-      adviceTip(iso);
+      (GOOD.on ? "" : adviceTip(iso));
     tip.hidden = false; tip.style.left = (e.point.x + 14) + "px"; tip.style.top = (e.point.y + 14) + "px";
   });
   map.on("mouseleave", "country-fill", () => { tip.hidden = true; });
@@ -520,7 +523,7 @@ map.on("load", async () => {
     const iso = e.features[0].properties.ADM0_A3;
     const list = conflictsFor(iso);
     if (!list.length) {                              // no conflict here: show the official travel advice, if any
-      if (ADVICE && (ADVICE.fcdo?.[iso] || ADVICE.us?.[iso])) {
+      if (!GOOD.on && ADVICE && (ADVICE.fcdo?.[iso] || ADVICE.us?.[iso])) {
         e.originalEvent._handled = true;
         new maplibregl.Popup({ closeButton: true, maxWidth: "320px" }).setLngLat(e.lngLat)
           .setHTML(`<b>${esc(countryName(iso))}</b>${adviceHtml(iso)}`).addTo(map);
@@ -533,6 +536,8 @@ map.on("load", async () => {
 
   await loadCountries();
   restoreSettings();          // before the first data load so the 24h/48h window is right
+  let goodPref = null; try { goodPref = localStorage.getItem("goodNews"); } catch (_) {}
+  if (hashParam("good") === "1" || (hashParam("good") !== "0" && goodPref === "1")) setGood(true);
   await load();
   await loadAdvice(); setInterval(loadAdvice, 3600000);   // before a shared #country= view renders its advice box
   const shared = hashParam("c"), sharedCountry = hashParam("country");
@@ -562,7 +567,8 @@ async function loadCountries() {
 /* ---------- data ---------- */
 async function load() {
   const hours = $("#window").value;
-  STATE = await (await fetch(`/api/state?hours=${hours}`)).json();
+  GOOD.raw = await (await fetch(`/api/state?hours=${hours}`)).json();
+  STATE = GOOD.on ? goodView(GOOD.raw) : GOOD.raw;
   render();
 }
 
@@ -584,7 +590,8 @@ function render() {
 
 function renderStatus() {
   const m = STATE.meta, g = STATE.gdelt;
-  const parts = [`<b>Updated ${esc(ago(m.last_extract?.at))}</b>`, `${STATE.conflicts.length} conflicts`, `${m.sources} news outlets`];
+  const parts = [`<b>Updated ${esc(ago(m.last_extract?.at))}</b>`,
+    GOOD.on ? `good news mode` : `${STATE.conflicts.length} conflicts`, `${m.sources} news outlets`];
   if (ONLINE) parts.unshift(`<span class="online" title="People with the map open right now (each open tab counts)"><i></i>${ONLINE} online</span>`);
   if (m.busy) parts.push(m.unprocessed ? `refreshing now, ${m.unprocessed} articles to read` : "refreshing now");
   else if (m.unprocessed && !m.serve_only) parts.push(`${m.unprocessed} articles queued`);
@@ -670,6 +677,7 @@ function renderArcs() {
       const from = [cc.lon, cc.lat], to = [ep.lon, ep.lat];
       const dist = Math.hypot(from[0] - to[0], from[1] - to[1]);
       if (p.role === "combatant" && dist < 12) continue;
+      if (GOOD.on && p.role !== "mediator") continue;         // good news: only the peacemakers' lines
       feats.push({
         type: "Feature", geometry: { type: "LineString", coordinates: arc(from, to) },
         properties: { color: SIDE_COLOR[p.side] || SIDE_COLOR.other, combat: p.role === "combatant", conflict: c.id },
@@ -789,6 +797,7 @@ function renderList({ animate = true } = {}) {
   $("#reader").hidden = true; readerOpen = false;
   $("#detail").hidden = true; $("#list").hidden = false; if (animate) reveal($("#list"));
   $("#list").removeAttribute("aria-busy");
+  if (GOOD.on) return renderGoodList();
   if (!STATE.conflicts.length) {
     $("#list-tools").hidden = true;
     $("#list").innerHTML = `<div class="empty">No conflicts extracted yet.<br><br>${STATE.meta.busy ? "The first refresh is running — the local model is reading the news feeds now." : "Press Refresh to fetch the feeds and run extraction."}</div>`;
@@ -850,29 +859,27 @@ function renderDetail() {
   };
   const sideBlock = (k, lbl) => bySide[k].length ? `<div class="side"><div class="lbl">${lbl}</div>${bySide[k].map(party).join("")}</div>` : "";
   d.innerHTML = `
-    <button class="back">← ${backCountry ? esc(countryName(backCountry)) : "all conflicts"}</button>
+    <button class="back">← ${backCountry ? esc(countryName(backCountry)) : GOOD.on ? "good news" : "all conflicts"}</button>
     <h2>${esc(c.name)}</h2>
     <div class="meta"><span class="badge st-${esc(c.status)}">${esc(STATUS_LABEL[c.status] || c.status)}</span>${sevbar(c.severity)} <span>${esc(c.region || "")}</span>
       ${(c.outlets || []).length < 2 ? `<span class="ob limited" title="Fewer than two current outlets have reported on this recently">limited reporting</span>` : ""}
       <span class="viewing in-detail" data-viewing="${esc(c.id)}" hidden></span>${reportLink("conflict", c.id, c.name)}</div>
     <div class="ai-note">Summarised by AI from the news sources below; <button class="linkish" data-about>how this works</button>.</div>
-    ${statTiles(c)}
-    <p class="summary">${esc(c.summary)}</p>
-    ${figureList(c)}
+    ${GOOD.on ? "" : statTiles(c) + `<p class="summary">${esc(c.summary)}</p>` + figureList(c)}
     <h3>Who is involved</h3>
     ${sideBlock("A", "Side A")}${sideBlock("B", "Side B")}${sideBlock("other", "Mediators / others")}
-    <h3>Consequences</h3>
-    <div class="cons">${(c.consequences || []).map(x => `<div class="con"><span class="cat">${esc(x.category)}</span><span>${esc(x.text)}${(x.affects || []).length ? ` <span style="opacity:.6">${x.affects.map(a => flag(norm(a))).join(" ")}</span>` : ""}${citeMarks(x)}</span></div>`).join("") || "<div class='empty'>none recorded</div>"}</div>
-    <h3>Latest developments</h3>
+    ${GOOD.on ? "" : `<h3>Consequences</h3>
+    <div class="cons">${(c.consequences || []).map(x => `<div class="con"><span class="cat">${esc(x.category)}</span><span>${esc(x.text)}${(x.affects || []).length ? ` <span style="opacity:.6">${x.affects.map(a => flag(norm(a))).join(" ")}</span>` : ""}${citeMarks(x)}</span></div>`).join("") || "<div class='empty'>none recorded</div>"}</div>`}
+    <h3>${GOOD.on ? "Good news" : "Latest developments"}</h3>
     ${(c.developments || []).map(x => `<div class="dev" data-url="${esc((x.sources || [])[0] || "")}"${(x.sources || []).length ? ` tabindex="0" role="button"` : ""}><span class="date">${esc(x.date)}</span><span>${esc(x.text)}${(x.sources || []).map(u => ` <a href="${esc(u)}" target="_blank" title="open original">↗</a>`).join("")}
       <span class="trust">${checkedBadge(x.verified)}${outletsBadge(x.outlets)}${(x.outlets || []).map(o => partyOutletLabel(o, c)).join("")}</span></span></div>`).join("")}
-    <h3>Reported attacks (7 days)</h3>
+    ${GOOD.on ? "" : `<h3>Reported attacks (7 days)</h3>
     ${conflictStrikes(c.id).map(st => `<div class="strike" data-id="${st.id}" tabindex="0" role="button">
       <span class="date">${esc(st.date.slice(5).replace("-", "/"))}</span><span class="w">${weaponSvg(st.weapon)}</span>
       <span class="body"><span class="route">${(st.attacker && st.attacker !== "unknown") ? esc(st.attacker) + " → " : st.origin_name ? esc(st.origin_name) + " → " : ""}${esc(st.target_name)}</span><span class="prec">${esc(st.target_precision)}</span><br>
       <span class="meta">${esc(st.weapon)}${st.launched != null ? ` · ${st.launched} launched` : ""}${st.intercepted != null ? ` · ${st.intercepted} intercepted` : ""}${st.outcome ? ` · ${esc(st.outcome)}` : ""}</span>
       <span class="trust">${checkedBadge(st.verified)}${outletsBadge(st.outlets)}${(st.outlets || []).map(o => partyOutletLabel(o, c)).join("")}</span></span>
-    </div>`).join("") || "<div class='empty'>none reported in the feeds</div>"}
+    </div>`).join("") || "<div class='empty'>none reported in the feeds</div>"}`}
     <h3>Sources</h3>
     ${(c.sources || []).slice(0, 12).map(s => `<div class="src" tabindex="0" role="button" data-url="${esc(s.link)}" data-title="${esc(s.title)}" data-source="${esc(s.outlet || s.source)}">${esc(s.title)} <span class="s">— ${esc(s.outlet || s.source)}</span>${s.outlet ? partyOutletLabel(s.outlet, c) : `<span class="ob gone" title="A news source that is no longer used">old source</span>`} <a href="${esc(s.link)}" target="_blank" title="open original">↗</a></div>`).join("")}
   `;
@@ -1103,7 +1110,7 @@ function renderCountry() {
     <button class="back">← all conflicts</button>
     <h2>${flag(iso)} ${esc(name)}</h2>
     <div class="meta">Involved in ${perConflict.length} conflicts</div>
-    ${adviceHtml(iso)}
+    ${GOOD.on ? "" : adviceHtml(iso)}
     <div class="rel-key"><span><i style="background:${REL_COLOR.ally}"></i>same side</span><span><i style="background:${REL_COLOR.enemy}"></i>opposing side</span><span><i style="background:${REL_COLOR.other}"></i>mediators &amp; others</span></div>
     ${perConflict.map(({ c, me, groups }) => `<div class="card ccard" data-id="${esc(c.id)}" tabindex="0" role="button">
       <div class="head"><span class="name">${esc(c.name)}</span>${sevbar(c.severity)}<span class="badge st-${esc(c.status)}">${esc(STATUS_LABEL[c.status] || c.status)}</span></div>
@@ -1124,6 +1131,7 @@ const SETTINGS_VERSION = 2;     // 2: spin off by default; a saved "spin on" fro
 function saveSettings() {
   const out = {};
   for (const id of SETTING_IDS) { const el = document.getElementById(id); if (el) out[id] = el.type === "checkbox" ? el.checked : el.value; }
+  if (GOOD.stash) Object.assign(out, GOOD.stash);
   out.v = SETTINGS_VERSION;
   try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(out)); } catch (_) {}
 }
@@ -1471,23 +1479,24 @@ $("#tg-advice").addEventListener("change", () => { applyAdvice(); syncLegend(); 
 
 /* ---------- local news ---------- */
 const LOCAL_MINZOOM = 4;
-const LOCAL_COLOR = { violence: "#ff6b6b", tension: "#f2c14e", other: "#9fb4d9" };
+const LOCAL_COLOR = { violence: "#ff6b6b", tension: "#f2c14e", other: "#9fb4d9", good: "#5fd38d" };
 let localTimer = null, localSeq = 0;
 async function loadLocalNews() {
-  const on = $("#tg-local").checked, zoomed = map.getZoom() >= LOCAL_MINZOOM;
+  const on = $("#tg-local").checked, zoomed = GOOD.on || map.getZoom() >= LOCAL_MINZOOM;   // the good stories are few enough for the whole globe
   $("#local-hint").textContent = on && !zoomed ? "(zoom in)" : "";
   if (!on || !zoomed || document.hidden) return;
   const b = map.getBounds(), seq = ++localSeq;
   const q = [b.getWest(), b.getSouth(), b.getEast(), b.getNorth()].map(v => v.toFixed(3));
   if (+q[2] - +q[0] >= 360) { q[0] = "-180"; q[2] = "180"; }
-  const wrap = (v) => ((+v + 540) % 360) - 180;                       // the globe can report longitudes past ±180
+  const wrap = (v) => Math.abs(+v) <= 180 ? +v : ((+v + 540) % 360) - 180;   // the globe can report longitudes past ±180
   let items = [];
-  try { items = (await (await fetch(`/api/local-news?w=${wrap(q[0])}&s=${q[1]}&e=${wrap(q[2])}&n=${q[3]}`)).json()).items || []; } catch (_) { return; }
+  try { items = (await (await fetch(`/api/local-news?w=${wrap(q[0])}&s=${q[1]}&e=${wrap(q[2])}&n=${q[3]}${GOOD.on ? "&good=1" : ""}`)).json()).items || []; } catch (_) { return; }
   if (seq !== localSeq) return;
   $("#local-hint").textContent = `(${items.length}${items.length >= 400 ? "+" : ""})`;
   map.getSource("local-news").setData({ type: "FeatureCollection", features: items.map(i => ({
     type: "Feature", geometry: { type: "Point", coordinates: [i.lon, i.lat] },
     properties: { ...i, lm: Math.log2(1 + (i.m || 1)) } })) });
+  if (GOOD.on) { GOOD.local = items; if (STATE && !selected && !selectedCountry && !readerOpen) renderGoodList(); }
 }
 function localHtml(p) {
   return `<b>${esc(p.title)}</b><br>${esc(p.place || "")} · ${esc(ago(p.t))}<br><span style="opacity:.6">${esc(host(p.url))} · click to read</span>`;
@@ -1501,6 +1510,74 @@ $("#tg-local").addEventListener("change", (e) => {
   for (const id of ["local-news", "local-news-outline"]) map.setLayoutProperty(id, "visibility", e.target.checked ? "visible" : "none");
   loadLocalNews();
 });
+
+/* ---------- good news mode ---------- */
+/* layers that are all bad news; switched off (and locked) while good news mode is on */
+const GOOD_HIDES = ["tg-heat", "tg-gdelt-arcs", "tg-strikes", "tg-incidents", "tg-aircraft", "tg-ships", "tg-advice"];
+/* the state with only good news left: conflicts that report progress, with just those developments
+   and the sources behind them; no attacks, casualty figures, consequences or GDELT conflict events */
+function goodView(raw) {
+  const conflicts = raw.conflicts.map(c => {
+    const developments = (c.developments || []).filter(d => d.good);
+    const links = new Set(developments.flatMap(d => d.sources || []));
+    return { ...c, developments, consequences: [], stats: {}, activity: {}, sources: (c.sources || []).filter(s => links.has(s.link)) };
+  }).filter(c => c.developments.length);
+  return { ...raw, conflicts, strikes: [], gdelt: { ...raw.gdelt, heat: {}, points: [], pairs: [], incidents: [] } };
+}
+function setControl(id, v) {
+  const el = document.getElementById(id);
+  if (el.type === "checkbox") { if (el.checked === !!v) return; el.checked = !!v; }
+  else { v = v || ""; if (el.value === v) return; el.value = v; }
+  el.dispatchEvent(new Event("change"));
+}
+function setGood(on) {
+  if (on === GOOD.on) return;
+  GOOD.on = on;
+  document.body.classList.toggle("good-mode", on);
+  $("#good-btn").setAttribute("aria-pressed", on); $("#tg-good").checked = on;
+  try { localStorage.setItem("goodNews", on ? "1" : "0"); } catch (_) {}
+  if (on) {
+    GOOD.stash = {};
+    for (const id of [...GOOD_HIDES, "tg-local"]) { const el = document.getElementById(id); GOOD.stash[id] = el.type === "checkbox" ? el.checked : el.value; }
+    for (const id of GOOD_HIDES) setControl(id, false);
+    setControl("tg-local", true);
+  } else {
+    const stash = GOOD.stash || {}; GOOD.stash = null; GOOD.local = [];
+    for (const [id, v] of Object.entries(stash)) setControl(id, v);
+  }
+  for (const id of GOOD_HIDES) document.getElementById(id).disabled = on;
+  for (const id of ["local-news", "local-news-outline"]) map.setLayerZoomRange(id, on ? 0 : LOCAL_MINZOOM, 24);
+  map.getSource("local-news").setData({ type: "FeatureCollection", features: [] });   // no leftover stories from the other mode
+  loadLocalNews();
+  syncLegend(); saveSettings();
+  if (GOOD.raw) { STATE = on ? goodView(GOOD.raw) : GOOD.raw; LIST.status = ""; render(); }
+}
+function renderGoodList() {
+  $("#reader").hidden = true; readerOpen = false;
+  $("#detail").hidden = true; $("#list").hidden = false; $("#list-tools").hidden = true;
+  const devs = STATE.conflicts.flatMap(c => c.developments.map(d => ({ c, d })))
+    .sort((a, b) => (b.d.date || "").localeCompare(a.d.date || ""));
+  const local = GOOD.local.slice(0, 40);
+  $("#list").innerHTML = `<div class="good-intro">Good news mode: attacks, fighting, crime and disasters are hidden. What is left is
+      progress towards peace and upbeat local stories, picked automatically, so the odd one may slip through.
+      <button class="linkish" id="good-off">Show all news</button></div>
+    <h3 class="gh3">Progress in conflicts</h3>
+    ${devs.map(({ c, d }) => `<div class="card gdev" data-id="${esc(c.id)}" tabindex="0" role="button">
+      <div class="head"><span class="name">${esc(c.name)}</span><span class="date">${esc(d.date || "")}</span></div>
+      <div class="gtext">${esc(d.text)}</div></div>`).join("") || `<div class="empty small">No progress towards peace in the latest reports.</div>`}
+    <h3 class="gh3">Good news on the map</h3>
+    ${local.map((i, n) => `<div class="src glocal" tabindex="0" role="button" data-i="${n}">${esc(i.title)} <span class="s">— ${esc(i.place || host(i.url))}</span></div>`).join("")
+      || `<div class="empty small">${$("#tg-local").checked ? "Looking for good stories in view…" : "Switch on Local news in Layers to see good local stories."}</div>`}`;
+  $("#good-off").addEventListener("click", () => setGood(false));
+  document.querySelectorAll("#list .gdev").forEach(el => el.addEventListener("click", () => select(el.dataset.id)));
+  document.querySelectorAll("#list .glocal").forEach(el => el.addEventListener("click", () => {
+    const i = local[+el.dataset.i];
+    map.flyTo({ center: [i.lon, i.lat], zoom: Math.max(map.getZoom(), 5), speed: 0.9, padding: sheetPadding() });
+    openLocalFeature({ properties: i });
+  }));
+}
+$("#good-btn").addEventListener("click", () => setGood(!GOOD.on));
+$("#tg-good").addEventListener("change", (e) => setGood(e.target.checked));
 
 /* ---------- strikes ---------- */
 let strikeAnim = null;      // {items:[{path, color, id, hasPath}], start}

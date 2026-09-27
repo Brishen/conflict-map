@@ -422,3 +422,23 @@ body.legend-open #legend { display: flex; }
 @media (max-width: 900px) { #detail .ccard { margin: 0 -16px; } }
 .menu-about { align-self: flex-start; font-size: 12px; }
 @media (max-width: 900px) { #about-btn { display: none; } }
+
+/* ---------- good news mode ---------- */
+.sun { display: inline-block; width: 9px; height: 9px; border-radius: 50%; background: #5fd38d; flex: none; }
+#good-btn { display: inline-flex; align-items: center; gap: 7px; }
+#good-btn[aria-pressed="true"] { border-color: #5fd38d; background: rgba(95,211,141,.14); color: var(--ink); }
+#good-btn[aria-pressed="true"] .sun { box-shadow: 0 0 0 3px rgba(95,211,141,.25); }
+body:not(.good-mode) #legend .good-only, body.good-mode #legend .bad-only { display: none; }
+.ln.g { background: #5fd38d; }
+body.good-mode .controls label:has(:disabled) { opacity: .4; }
+body.good-mode .mk { color: #5fd38d !important; }
+body.good-mode .mk::after { animation: none; opacity: 0; }
+.good-intro { padding: 12px 14px; margin: 10px 12px 4px; border: 1px solid rgba(95,211,141,.35); background: rgba(95,211,141,.08); border-radius: 8px; color: var(--ink-2); font-size: 13px; line-height: 1.45; }
+#list h3.gh3 { font-size: 11px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin: 16px 14px 6px; }
+#list .gdev .gtext { color: var(--ink-2); font-size: 13px; line-height: 1.4; margin-top: 4px; }
+#list .gdev .date { color: var(--muted); font-size: 12px; margin-left: auto; font-variant-numeric: tabular-nums; }
+#list .glocal { padding: 6px 14px; border-bottom: 1px dashed var(--border); }
+#list .empty.small { padding: 8px 14px; }
+@media (max-width: 760px) {
+  #good-btn { display: none; }    /* no room in the phone header: the switch in Layers does it */
+}

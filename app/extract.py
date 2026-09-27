@@ -46,7 +46,7 @@ Each conflict object:
       "article_ids": [ids from this batch that state it, or [] when none do]}}
   ],
   "developments": [
-    {{"date": "YYYY-MM-DD", "text": "one sentence", "article_ids": [integer ids from this batch, always cite at least one]}}
+    {{"date": "YYYY-MM-DD", "text": "one sentence", "good": true | false, "article_ids": [integer ids from this batch, always cite at least one]}}
   ],
   "strikes": [
     {{"date": "YYYY-MM-DD",
@@ -64,6 +64,7 @@ Rules:
 - Keep records COMPLETE on every update: return the full merged party list, the full consequence list (keep prior items still true, add new ones, drop stale ones), and the 6 most recent developments (prior ones plus new ones).
 - Be factual and neutral. Cite the article ids that support each development. Never invent developments not in the batch.
 - Accuracy matters more than completeness: every development and strike is later checked word for word against the full article it cites, and anything the article does not say is thrown away. Only state what the cited item says; never add numbers, places, attackers or dates it does not give.
+- "good" on a development is true ONLY for real progress with no harm in the same sentence: a ceasefire or truce agreed or holding, peace talks advancing, prisoners or hostages released, aid getting through, displaced people returning home, rebuilding. Anything about fighting, casualties, threats, failed or stalled talks is false.
 - Cite article ids for parties and consequences whenever an item in this batch states them; use [] only for well-established background (it is then shown to readers as background, not as reported).
 - Strikes = ANY located attack reported in THIS batch (never from memory): airstrikes, missiles, drones, artillery/shelling, ground assaults on towns, bombings/IEDs, naval attacks, massacres. This explicitly includes INTERNAL conflicts (RSF shelling El Fasher, IDF strikes on Gaza City, M23 taking Goma, Al-Qaeda attacking a Malian base) - the target is the place hit, the attacker is the party, and origin may be null. One entry per named target place per attack; if an article lists several places hit, emit one entry per place. If the target is only given as a region, put that in "place" and set lat/lon to your best estimate. For cross-border launches give the origin region ("Crimea", "Iran") with ISO3 and rough lat/lon. Use exact numbers from the article for launched/intercepted, else null. Omit "strikes" only if the batch reports no attacks for that conflict.
 - Dates: use the article's date. Today is {{today}}.
@@ -517,6 +518,8 @@ def run_batch(limit: int = ARTICLES_PER_BATCH) -> int:
                     d["sources"] = prev_src[k]["sources"]
                     if "verified" in prev_src[k]:
                         d["verified"] = prev_src[k]["verified"]
+                if "good" not in d and k in prev_src and "good" in prev_src[k]:
+                    d["good"] = prev_src[k]["good"]
                 if k in seen:
                     if d.get("sources") and not seen[k].get("sources"):
                         seen[k]["sources"] = d["sources"]

@@ -111,6 +111,22 @@ reported them, the period covered and a "party claim" tag when a warring side is
 source. `app/stats.py` reads the full text of recent articles; a figure is kept only if
 its number and quote appear in the article. Refreshed per conflict at most every 12 h.
 
+## Good news mode
+
+The "Good news" button (in Layers on phones) hides everything that is bad news: attacks,
+incidents, news heat, GDELT links, military aircraft and ships, travel advice, casualty
+figures and consequences. What is left:
+
+- **Progress in conflicts**: developments the model tags `"good": true` (ceasefires, talks,
+  releases, aid getting through, people returning, rebuilding). Developments stored before
+  the tag existed fall back to a keyword check. Either way, anything mentioning violence, loss
+  or failure is dropped (`app/goodnews.py`), so a conflict appears only while it has such news.
+- **Good news on the map**: local news (`/api/local-news?good=1`) limited to cooperative CAMEO
+  roots 1-8 with GDELT tone >= 2, minus headlines and URLs that name crime, disasters or conflict.
+  Shown at every zoom level, not just from zoom 4.
+
+The choice is remembered per browser; `#good=1` in the URL links straight to it.
+
 ## Public viewer (Luma001)
 
 The Hetzner box has no GPU, so it only *serves* the map. The home machine runs the

@@ -37,6 +37,7 @@
   <div class="status" id="status">loading…</div>
   <button id="about-btn" data-about title="Where the information comes from and how it is checked">How this works</button>
   <button id="reports-btn" hidden title="Problem reports from visitors (only on this home viewer)">⚑ Reports <span class="n"></span></button>
+  <button id="good-btn" aria-pressed="false" aria-label="Good news mode" title="Good news mode: hide attacks, fighting and crime; show only progress towards peace and upbeat local stories"><span class="sun" aria-hidden="true"></span><span>Good news</span></button>
   <button id="tv-btn" aria-expanded="false" aria-controls="tv" title="Watch live TV news channels"><span class="live-dot"></span><span class="long">Live TV</span><span class="short">TV</span></button>
   <button id="menu-btn" aria-expanded="false" aria-controls="controls" title="Layers &amp; settings">
     <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path fill="currentColor" d="M8 1 1 4.5 8 8l7-3.5L8 1Zm-5.6 6.2L1 7.9 8 11.4l7-3.5-1.4-.7L8 10 2.4 7.2Zm0 3.4L1 11.3 8 14.8l7-3.5-1.4-.7L8 13.4l-5.6-2.8Z"/></svg>
@@ -44,6 +45,7 @@
   <div class="controls" id="controls" role="dialog" aria-label="Layers and settings">
     <div class="grp">
       <div class="grp-h">View</div>
+      <label class="toggle" title="Hide attacks, fighting, crime and disasters; show only progress towards peace and upbeat local stories"><input type="checkbox" id="tg-good" autocomplete="off"> Good news only</label>
       <label class="toggle"><input type="checkbox" id="tg-globe" checked> Globe</label>
       <label class="toggle"><input type="checkbox" id="tg-rotate"> Spin</label>
       <label class="toggle" title="Live day/night from the sun's position"><input type="checkbox" id="tg-night" checked> Day/night</label>
@@ -117,7 +119,8 @@
     <div class="row" data-layer="tg-strikes" id="weapon-legend"></div>
     <div class="row" data-layer="tg-incidents"><span class="sw inc"></span> press-reported incident (GDELT, zoom in)</div>
     <div class="row" data-layer="tg-aircraft"><span class="plane" style="color:#5ec8e5">✈</span> tanker <span class="plane" style="color:#c792ff">✈</span> surveillance <span class="plane" style="color:#e6e4da">✈</span> transport <span class="plane" style="color:#ff5a5a">✈</span> combat <svg class="heli-ico" viewBox="0 0 48 48" width="12" height="12" style="color:#7ed67e;vertical-align:-1px" aria-hidden="true"><g stroke="currentColor" stroke-linecap="round" fill="currentColor"><ellipse cx="24" cy="20" rx="6" ry="9"/><path d="M24 27v15M19 42h10" stroke-width="3" fill="none"/><path d="M6 8l36 24M42 8L6 32" stroke-width="3" fill="none"/></g></svg> heli</div>
-    <div class="row" data-layer="tg-local"><span class="ln v"></span> violence &amp; crime <span class="ln t"></span> protest &amp; tension <span class="ln o"></span> other local news <span class="note">(GDELT's automatic tagging, rough)</span></div>
+    <div class="row good-only" data-layer="tg-local"><span class="ln g"></span> good news story <span class="note">(GDELT's automatic tone and tagging, rough)</span></div>
+    <div class="row bad-only" data-layer="tg-local"><span class="ln v"></span> violence &amp; crime <span class="ln t"></span> protest &amp; tension <span class="ln o"></span> other local news <span class="note">(GDELT's automatic tagging, rough)</span></div>
     <div class="row" data-advice="fcdo"><b class="adv-h">UK Foreign Office</b> <span class="adv a0"></span> no advice against travel <span class="adv a1"></span> all but essential travel to parts <span class="adv a2"></span> all travel to parts <span class="adv a3"></span> all but essential travel <span class="adv a4"></span> all travel</div>
     <div class="row" data-advice="us"><b class="adv-h">US State Dept</b> <span class="adv u1"></span> 1 normal precautions <span class="adv u2"></span> 2 increased caution <span class="adv u3"></span> 3 reconsider travel <span class="adv u4"></span> 4 do not travel</div>
     <div class="row" data-layer="tg-ships"><svg viewBox="0 0 48 48" width="12" height="12" style="color:#8fd3ff;vertical-align:-1px" aria-hidden="true"><path fill="currentColor" d="M24 3l7 11v27l-7 4-7-4V14z"/></svg> naval vessel (AIS)</div>

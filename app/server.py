@@ -14,7 +14,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 
-from . import aircraft, countries, ships, gdelt, livetv, pipeline, reader
+from . import aircraft, countries, ships, gdelt, goodnews, livetv, pipeline, reader
 from .config import OUTLETS, outlet_of, AIRCRAFT_ENABLED, DATA_DIR, GDELT_WINDOW_HOURS, REFRESH_MINUTES, SERVE_ONLY, STATIC_DIR
 from .db import all_conflicts, db, get_state, store_report
 
@@ -124,6 +124,7 @@ def build_state(hours: int, strike_days: int) -> dict:
             s_["outlet"] = outlet_of(s_.get("source"))
         for d in c.get("developments") or []:
             d["outlets"] = sorted({o for o in (outlet_of(link_source.get(u)) for u in d.get("sources") or []) if o})
+            d["good"] = goodnews.development(d)
         c["outlets"] = sorted({s_["outlet"] for s_ in c.get("sources") or [] if s_["outlet"]})
     conflicts.sort(key=lambda c: (-(c.get("severity") or 0), -(c.get("last_seen") or 0)))
     return {
@@ -241,8 +242,8 @@ async def refresh(skip_llm: bool = False):
 
 
 @app.get("/api/local-news")
-async def local_news(w: float, s: float, e: float, n: float):
-    items = await asyncio.to_thread(gdelt.local_news, w, s, e, n)
+async def local_news(w: float, s: float, e: float, n: float, good: bool = False):
+    items = await asyncio.to_thread(gdelt.local_news, w, s, e, n, good=good)
     return JSONResponse({"items": items}, headers={"Cache-Control": "max-age=60"})
 
 

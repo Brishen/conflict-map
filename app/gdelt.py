@@ -9,6 +9,7 @@ from datetime import datetime, timedelta, timezone
 
 import httpx
 
+from . import goodnews
 from .config import GDELT_BACKFILL_HOURS, GDELT_WINDOW_HOURS
 from .db import db
 
@@ -25,6 +26,7 @@ VIOLENT = re.compile(r"^(kill|attack|strike|airstrik|drone|missil|rocket|shell|b
                      r"casualt|wounded|dead|deadly|violen|mortar|artiller|grenade|genocid|ethnic|cleans|riot|"
                      r"isis|hamas|hezbollah|houthi|taliban|wagner|rsf|idf|m23|gang|cartel|guerrill|paramilitar|"
                      r"frontline|ceasefir|firefight|execut|behead|torch|burn|loot|mob|lynch|murder)")
+GOOD_MIN_TONE = 2      # GDELT average article tone; above this reads as clearly upbeat
 SLUG_STOP = {"news", "world", "article", "story", "stories", "amp", "html", "www", "com", "local", "national",
              "international", "politics", "the", "and", "for", "with", "from", "that", "this", "after", "over"}
 
@@ -171,19 +173,23 @@ def local_topic(root: int, quad: int) -> str:
     return "other"
 
 
-def local_news(w: float, s: float, e: float, n: float, limit: int = 400) -> list[dict]:
-    """Located articles of the last 24 h inside a bounding box (w > e means it crosses the antimeridian)."""
+def local_news(w: float, s: float, e: float, n: float, limit: int = 400, good: bool = False) -> list[dict]:
+    """Located articles of the last 24 h inside a bounding box (w > e means it crosses the antimeridian).
+    good: only cooperative, clearly positive-toned stories whose headline is not about crime or disaster."""
     lon_sql = "(lon >= ? AND lon <= ?)" if w <= e else "(lon >= ? OR lon <= ?)"
+    good_sql = f"AND root BETWEEN 1 AND 8 AND tone >= {GOOD_MIN_TONE} " if good else ""
     try:
         with db() as con:
             rows = con.execute(
                 f"SELECT url, added, lat, lon, place, cc, root, quad, mentions FROM local_news "
-                f"WHERE lat BETWEEN ? AND ? AND {lon_sql} ORDER BY mentions DESC, added DESC LIMIT ?",
-                (s, n, w, e, limit)).fetchall()
+                f"WHERE lat BETWEEN ? AND ? AND {lon_sql} {good_sql}ORDER BY mentions DESC, added DESC LIMIT ?",
+                (s, n, w, e, limit * 2 if good else limit)).fetchall()
     except Exception:  # noqa: BLE001  (a viewer database pushed before this table existed)
         return []
-    return [{"url": r["url"], "title": _slug_title(r["url"]), "t": r["added"], "lat": r["lat"], "lon": r["lon"],
-             "place": r["place"], "topic": local_topic(r["root"], r["quad"]), "m": r["mentions"]} for r in rows]
+    out = [{"url": r["url"], "title": _slug_title(r["url"]), "t": r["added"], "lat": r["lat"], "lon": r["lon"],
+            "place": r["place"], "topic": "good" if good else local_topic(r["root"], r["quad"]), "m": r["mentions"]}
+           for r in rows]
+    return [i for i in out if goodnews.local_title(i["title"], i["url"])][:limit] if good else out
 
 
 def aggregate(hours: int = GDELT_WINDOW_HOURS) -> dict:
