@@ -72,7 +72,14 @@ FEEDS = {
     "ICRC": "https://www.icrc.org/en/rss/news",
     # open-source verification
     "Bellingcat": "https://www.bellingcat.com/feed/",
+    # cyber mode only: never read by the conflict extraction (see CYBER_FEEDS)
+    "The Record": "https://therecord.media/feed",
+    "BleepingComputer": "https://www.bleepingcomputer.com/feed/",
+    "SecurityWeek": "https://www.securityweek.com/feed/",
+    "Dark Reading": "https://www.darkreading.com/rss.xml",
+    "Krebs on Security": "https://krebsonsecurity.com/feed/",
 }
+CYBER_FEEDS = {"The Record", "BleepingComputer", "SecurityWeek", "Dark Reading", "Krebs on Security"}
 
 # Who publishes each feed. "country" is used to label an outlet from a country that is itself a party to
 # the conflict being shown (a US outlet on a US conflict); "note" explains the outlet in the About panel.
@@ -93,6 +100,11 @@ OUTLETS = {
     "ReliefWeb": {"feeds": "ReliefWeb", "country": None, "note": "UN OCHA humanitarian reports"},
     "ICRC": {"feeds": "ICRC", "country": None, "note": "International Committee of the Red Cross"},
     "Bellingcat": {"feeds": "Bellingcat", "country": "NLD", "note": "open-source investigators"},
+    "The Record": {"feeds": "The Record", "country": "USA", "note": "cybersecurity newsroom of Recorded Future", "cyber": True},
+    "BleepingComputer": {"feeds": "BleepingComputer", "country": "USA", "note": "cybersecurity news site", "cyber": True},
+    "SecurityWeek": {"feeds": "SecurityWeek", "country": "USA", "note": "cybersecurity news site", "cyber": True},
+    "Dark Reading": {"feeds": "Dark Reading", "country": "USA", "note": "cybersecurity news site", "cyber": True},
+    "Krebs on Security": {"feeds": "Krebs on Security", "country": "USA", "note": "investigative cybercrime reporter", "cyber": True},
 }
 
 
@@ -117,6 +129,12 @@ RELEVANCE_TERMS = [
     "massacre", "genocide", "gaza", "ukraine", "sudan", "yemen", "myanmar", "sahel", "congo", "somalia",
     "guerrill", "cartel", "gang", "paramilitar", "farc", "dissident", "haiti",
 ]
+
+# Cyber mode. Attacks between countries come from Cloudflare Radar (free API token with "Radar: Read";
+# without one that layer is off). Ransomware claims (ransomware.live) and outages (IODA) need no key.
+CLOUDFLARE_RADAR_TOKEN = os.environ.get("CLOUDFLARE_RADAR_TOKEN", "")
+CYBER_BATCH = int(os.environ.get("CYBER_BATCH", "15"))              # articles per model call
+CYBER_MAX_BATCHES = int(os.environ.get("CYBER_MAX_BATCHES", "4"))   # per refresh
 
 # Military ships (AIS via aisstream.io, free API key: https://aisstream.io). Off without a key.
 AISSTREAM_API_KEY = os.environ.get("AISSTREAM_API_KEY", "")

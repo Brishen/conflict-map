@@ -278,6 +278,8 @@ map.on("load", async () => {
     },
   });
 
+  addCyberLayers();
+
   // ---- labels: capitals, cities, country names
   map.addLayer({
     id: "capital-dots", type: "circle", source: "places", minzoom: 2.5,
@@ -541,6 +543,11 @@ map.on("load", async () => {
     const f = e.features[0]; const iso = f.properties.ADM0_A3;
     const h = STATE?.gdelt.heat[iso];
     const inv = STATE ? STATE.conflicts.filter(c => c.parties.some(p => norm(p.country) === iso)).map(c => c.name) : [];
+    if (CYBER.on) {
+      tip.innerHTML = `<b>${esc(f.properties.NAME_EN || f.properties.NAME)}</b>` + cyberCountryTip(iso);
+      tip.hidden = false; tip.style.left = (e.point.x + 14) + "px"; tip.style.top = (e.point.y + 14) + "px";
+      return;
+    }
     tip.innerHTML = `<b>${esc(f.properties.NAME_EN || f.properties.NAME)}</b>` + (GOOD.on ? "" :
       h ? `<br>${h.events} conflict events · ${h.mentions} mentions (${STATE.gdelt.hours}h)` : "<br>no GDELT conflict events") +
       (inv.length ? `<br>involved in: ${esc(inv.join(", "))}` : "") +
@@ -555,7 +562,7 @@ map.on("load", async () => {
     const iso = e.features[0].properties.ADM0_A3;
     const list = conflictsFor(iso);
     if (!list.length) {                              // no conflict here: show the official travel advice, if any
-      if (!GOOD.on && ADVICE && (ADVICE.fcdo?.[iso] || ADVICE.us?.[iso])) {
+      if (!GOOD.on && !CYBER.on && ADVICE && (ADVICE.fcdo?.[iso] || ADVICE.us?.[iso])) {
         e.originalEvent._handled = true;
         new maplibregl.Popup({ closeButton: true, maxWidth: "320px" }).setLngLat(e.lngLat)
           .setHTML(`<b>${esc(countryName(iso))}</b>${adviceHtml(iso)}`).addTo(map);
@@ -571,6 +578,8 @@ map.on("load", async () => {
   $("#tg-sat").dispatchEvent(new Event("change"));   // the style starts on the relief; switch to the imagery if it's on
   let goodPref = null; try { goodPref = localStorage.getItem("goodNews"); } catch (_) {}
   if (hashParam("good") === "1" || (hashParam("good") !== "0" && goodPref === "1")) setGood(true);
+  let cyberPref = null; try { cyberPref = localStorage.getItem("cyberMode"); } catch (_) {}
+  if (!GOOD.on && (hashParam("cyber") === "1" || (hashParam("cyber") !== "0" && cyberPref === "1"))) setCyber(true);
   await load();
   startHeadlines();
   await loadAdvice(); setInterval(loadAdvice, 3600000);
@@ -603,7 +612,7 @@ async function loadCountries() {
 async function load() {
   const hours = $("#window").value;
   GOOD.raw = await (await fetch(`/api/state?hours=${hours}`)).json();
-  STATE = GOOD.on ? goodView(GOOD.raw) : GOOD.raw;
+  STATE = viewOf(GOOD.raw);
   render();
 }
 
@@ -626,7 +635,7 @@ function render() {
 function renderStatus() {
   const m = STATE.meta, g = STATE.gdelt;
   const parts = [`<b>Updated ${esc(ago(m.last_extract?.at))}</b>`,
-    GOOD.on ? `good news mode` : `${STATE.conflicts.length} conflicts`, `${m.sources} news outlets`];
+    CYBER.on ? `cyber mode` : GOOD.on ? `good news mode` : `${STATE.conflicts.length} conflicts`, `${m.sources} news outlets`];
   if (ONLINE) parts.unshift(`<span class="online" title="People with the map open right now (each open tab counts)"><i></i>${ONLINE} online</span>`);
   if (m.busy) parts.push(m.unprocessed ? `refreshing now, ${m.unprocessed} articles to read` : "refreshing now");
   else if (m.unprocessed && !m.serve_only) parts.push(`${m.unprocessed} articles queued`);
@@ -836,6 +845,7 @@ function renderList({ animate = true } = {}) {
   $("#reader").hidden = true; readerOpen = false;
   $("#detail").hidden = true; $("#list").hidden = false; if (animate) reveal($("#list"));
   $("#list").removeAttribute("aria-busy");
+  if (CYBER.on) return renderCyberList();
   if (GOOD.on) return renderGoodList();
   if (!STATE.conflicts.length) {
     $("#list-tools").hidden = true;
@@ -1174,6 +1184,7 @@ function saveSettings() {
   const out = {};
   for (const id of SETTING_IDS) { const el = document.getElementById(id); if (el) out[id] = el.type === "checkbox" ? el.checked : el.value; }
   if (GOOD.stash) Object.assign(out, GOOD.stash);
+  if (CYBER.stash) Object.assign(out, CYBER.stash);
   out.v = SETTINGS_VERSION;
   try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(out)); } catch (_) {}
 }
@@ -1643,8 +1654,11 @@ function setControl(id, v) {
   else { v = v || ""; if (el.value === v) return; el.value = v; }
   el.dispatchEvent(new Event("change"));
 }
+/* what the page shows of the full state in the current mode */
+const viewOf = (raw) => CYBER.on ? cyberView(raw) : GOOD.on ? goodView(raw) : raw;
 function setGood(on) {
   if (on === GOOD.on) return;
+  if (on && CYBER.on) setCyber(false);          // one mode at a time
   GOOD.on = on;
   document.body.classList.toggle("good-mode", on);
   $("#good-btn").setAttribute("aria-pressed", on); $("#tg-good").checked = on;
@@ -1664,7 +1678,7 @@ function setGood(on) {
   loadLocalNews();
   if (!$("#news").hidden) loadHeadlines();
   syncLegend(); saveSettings();
-  if (GOOD.raw) { STATE = on ? goodView(GOOD.raw) : GOOD.raw; LIST.status = ""; render(); }
+  if (GOOD.raw) { STATE = viewOf(GOOD.raw); LIST.status = ""; render(); }
 }
 function renderGoodList() {
   $("#reader").hidden = true; readerOpen = false;
@@ -1692,6 +1706,192 @@ function renderGoodList() {
 }
 $("#good-btn").addEventListener("click", () => setGood(!GOOD.on));
 $("#tg-good").addEventListener("change", (e) => setGood(e.target.checked));
+
+/* ---------- cyber mode: the virtual side of the wars ---------- */
+/* attacks between countries (Cloudflare Radar, last 24 h), ransomware claims (ransomware.live: group, sector,
+   country; never the victim's name), internet outages (IODA) and incidents read from the news. Each is shown
+   with its real delay; nothing here is a packet-by-packet live feed. */
+const CYBER = { on: false, data: null, stash: null, dash: null, timer: null, outaged: [] };
+const CYBER_COLOR = { l3: "#38d9f5", l7: "#ff5fd2", news: "#ffc53d", ransom: "#ff4d6d", outage: "#9b6bff" };
+const CYBER_HIDES = [...GOOD_HIDES, "tg-arcs", "tg-local"];
+const CYBER_LAYERS = ["cyber-outage", "cyber-arcs-glow", "cyber-arcs", "cyber-ransom", "cyber-ransom-count", "cyber-inc"];
+const CYBER_KIND = { ransomware: "ransomware", ddos: "DDoS", breach: "data breach", espionage: "espionage", wiper: "wiper",
+                     defacement: "defacement", "hack-and-leak": "hack and leak", infrastructure: "infrastructure", other: "attack" };
+/* the dashes move along the arcs, origin to target */
+const DASH_SEQ = [[0, 4, 3], [0.5, 4, 2.5], [1, 4, 2], [1.5, 4, 1.5], [2, 4, 1], [2.5, 4, 0.5], [3, 4, 0],
+                  [0, 0.5, 3, 3.5], [0, 1, 3, 3], [0, 1.5, 3, 2.5], [0, 2, 3, 2], [0, 2.5, 3, 1.5], [0, 3, 3, 1], [0, 3.5, 3, 0.5]];
+function cyberView(raw) {
+  return { ...raw, conflicts: [], strikes: [], gdelt: { ...raw.gdelt, heat: {}, points: [], pairs: [], incidents: [] } };
+}
+function addCyberLayers() {
+  const empty = { type: "FeatureCollection", features: [] }, hidden = { visibility: "none" };
+  for (const id of ["cyber-arcs", "cyber-ransom", "cyber-inc"]) map.addSource(id, { type: "geojson", data: empty });
+  map.addLayer({ id: "cyber-outage", type: "fill", source: "countries", layout: hidden,
+    paint: { "fill-color": CYBER_COLOR.outage, "fill-opacity": ["match", ["coalesce", ["feature-state", "outage"], 0], 1, 0.16, 2, 0.3, 3, 0.45, 0] } });
+  map.addLayer({ id: "cyber-arcs-glow", type: "line", source: "cyber-arcs", layout: { ...hidden, "line-cap": "round" },
+    paint: { "line-color": ["get", "color"], "line-width": ["*", 3, ["get", "w"]], "line-blur": 4, "line-opacity": 0.25 } });
+  map.addLayer({ id: "cyber-arcs", type: "line", source: "cyber-arcs", layout: hidden,
+    paint: { "line-color": ["get", "color"], "line-width": ["get", "w"], "line-opacity": 0.9, "line-dasharray": DASH_SEQ[0] } });
+  map.addLayer({ id: "cyber-ransom", type: "circle", source: "cyber-ransom", layout: hidden,
+    paint: { "circle-color": CYBER_COLOR.ransom, "circle-opacity": 0.28, "circle-stroke-color": CYBER_COLOR.ransom, "circle-stroke-width": 1.5,
+             "circle-radius": ["interpolate", ["linear"], ["sqrt", ["get", "n"]], 1, 6, 10, 26] } });
+  map.addLayer({ id: "cyber-ransom-count", type: "symbol", source: "cyber-ransom", layout: { ...hidden, "text-field": ["to-string", ["get", "n"]],
+    "text-font": ["Open Sans Semibold"], "text-size": 11, "text-allow-overlap": true }, paint: { "text-color": "#fff", "text-halo-color": "rgba(0,0,0,.7)", "text-halo-width": 1 } });
+  map.addLayer({ id: "cyber-inc", type: "circle", source: "cyber-inc", layout: hidden,
+    paint: { "circle-color": CYBER_COLOR.news, "circle-radius": ["case", ["get", "state"], 6.5, 5], "circle-stroke-color": "#111", "circle-stroke-width": 1.5 } });
+  const tip = $("#tooltip");
+  const show = (e, html) => { tip.innerHTML = html; tip.hidden = false; tip.style.left = (e.point.x + 14) + "px"; tip.style.top = (e.point.y + 14) + "px"; map.getCanvas().style.cursor = "pointer"; };
+  const hide = () => { tip.hidden = true; map.getCanvas().style.cursor = ""; };
+  map.on("mousemove", "cyber-arcs", (e) => show(e, e.features[0].properties.tip));
+  map.on("mousemove", "cyber-ransom", (e) => show(e, e.features[0].properties.tip));
+  map.on("mousemove", "cyber-inc", (e) => { const i = CYBER.data?.incidents[e.features[0].properties.i]; if (i) show(e, cyberIncidentHtml(i)); });
+  for (const id of ["cyber-arcs", "cyber-ransom", "cyber-inc"]) map.on("mouseleave", id, hide);
+  map.on("click", "cyber-inc", (e) => { e.originalEvent._handled = true; openCyberIncident(e.features[0].properties.i); });
+  map.on("click", "cyber-ransom", (e) => { e.originalEvent._handled = true; });
+}
+function cyberFlag(iso) { return iso && COUNTRIES[iso] ? `${flag(iso)} ${esc(cname(iso))}` : ""; }
+function cyberIncidentHtml(i) {
+  const who = i.attacker ? `<br>by <b>${esc(i.attacker)}</b>${i.attacker_country ? ` (${cyberFlag(i.attacker_country)}${i.state_linked ? ", state-linked" : ""})` : ""}` +
+    (i.attribution ? ` <span style="opacity:.7">according to ${esc(i.attribution)}</span>` : "") : `<br><span style="opacity:.7">attacker not named</span>`;
+  return `<b>${esc(i.title || i.victim)}</b><br>${esc(CYBER_KIND[i.kind] || i.kind)} · ${esc(i.victim)}, ${cyberFlag(i.victim_country)} · ${esc(i.date)}${who}` +
+    (i.verified ? "" : `<br><span style="opacity:.6">not yet checked against the article</span>`);
+}
+function cyberCountryTip(iso) {
+  const d = CYBER.data; if (!d) return "";
+  const rs = d.ransomware.filter(r => r.country === iso), inc = d.incidents.filter(i => i.victim_country === iso);
+  const out = (d.outages?.countries || []).find(o => o.iso3 === iso);
+  const parts = [];
+  if (inc.length) parts.push(`${inc.length} attack${inc.length > 1 ? "s" : ""} in the news`);
+  if (rs.length) parts.push(`${rs.length} ransomware claim${rs.length > 1 ? "s" : ""} in 7 days`);
+  if (out) parts.push(`internet outage signal (IODA score ${out.score.toLocaleString()})`);
+  const pairs = (d.attacks?.pairs || []).filter(p => p.to === iso);
+  if (pairs.length) parts.push(`targeted from ${pairs.map(p => cname(p.from)).slice(0, 3).join(", ")}`);
+  return parts.length ? "<br>" + parts.map(esc).join("<br>") : `<br><span style="opacity:.6">nothing reported</span>`;
+}
+/* a few deterministic offsets so several incidents in one country don't sit on one point */
+function spread(iso, n) {
+  const c = COUNTRIES[iso]; if (!c) return null;
+  const a = n * 2.39996, r = n ? 0.9 + 0.55 * Math.sqrt(n) : 0;
+  return [c.lon + r * Math.cos(a), c.lat + r * Math.sin(a) * 0.8];
+}
+async function loadCyber() {
+  try { const r = await fetch("/api/cyber"); if (!r.ok) throw new Error(r.status); CYBER.data = await r.json(); }
+  catch (_) { if (!CYBER.data) CYBER.data = { attacks: null, outages: null, ransomware: [], incidents: [], attacks_enabled: false }; }
+  if (CYBER.on) renderCyber();
+}
+function renderCyber() {
+  const d = CYBER.data; if (!d || !map.getSource("cyber-arcs")) return;
+  const feats = [];
+  const maxShare = Math.max(1, ...(d.attacks?.pairs || []).map(p => p.share));
+  for (const p of d.attacks?.pairs || []) {
+    const a = COUNTRIES[p.from], b = COUNTRIES[p.to]; if (!a || !b || p.from === p.to) continue;
+    const what = p.layer === "l3" ? "network-layer (DDoS)" : "web-application";
+    feats.push({ type: "Feature", geometry: { type: "LineString", coordinates: arc([a.lon, a.lat], [b.lon, b.lat], 60) },
+      properties: { color: CYBER_COLOR[p.layer], w: 0.8 + 3.2 * Math.sqrt(p.share / maxShare),
+        tip: `<b>${esc(cname(p.from))} → ${esc(cname(p.to))}</b><br>${p.share}% of ${what} attacks seen by Cloudflare, last 24 h` +
+             (p.layer === "l3" ? `<br><span style="opacity:.6">origin = where the traffic entered Cloudflare, not necessarily who sent it</span>` : "") } });
+  }
+  d.incidents.forEach((i, n) => {
+    const a = COUNTRIES[i.attacker_country], b = COUNTRIES[i.victim_country];
+    if (a && b && i.attacker_country !== i.victim_country)
+      feats.push({ type: "Feature", geometry: { type: "LineString", coordinates: arc([a.lon, a.lat], [b.lon, b.lat], 60) },
+        properties: { color: CYBER_COLOR.news, w: i.state_linked ? 2.4 : 1.6, tip: cyberIncidentHtml(i) } });
+  });
+  map.getSource("cyber-arcs").setData({ type: "FeatureCollection", features: feats });
+  const byC = {};
+  for (const r of d.ransomware) if (r.country) (byC[r.country] = byC[r.country] || []).push(r);
+  map.getSource("cyber-ransom").setData({ type: "FeatureCollection", features: Object.entries(byC).filter(([iso]) => COUNTRIES[iso]).map(([iso, rs]) => {
+    const groups = Object.entries(rs.reduce((m, r) => (m[r.grp] = (m[r.grp] || 0) + 1, m), {})).sort((x, y) => y[1] - x[1]).slice(0, 3);
+    return { type: "Feature", geometry: { type: "Point", coordinates: [COUNTRIES[iso].lon, COUNTRIES[iso].lat] },
+      properties: { n: rs.length, tip: `<b>${esc(cname(iso))}</b><br>${rs.length} ransomware claim${rs.length > 1 ? "s" : ""} posted in the last 7 days` +
+        `<br>top groups: ${groups.map(([g, n]) => `${esc(g)} (${n})`).join(", ")}<br><span style="opacity:.6">ransomware.live; claims by the gangs, not confirmed breaches</span>` } };
+  }) });
+  const seen = {};
+  map.getSource("cyber-inc").setData({ type: "FeatureCollection", features: d.incidents.map((i, n) => {
+    const k = seen[i.victim_country] = (seen[i.victim_country] ?? -1) + 1;
+    const at = spread(i.victim_country, k); if (!at) return null;
+    return { type: "Feature", geometry: { type: "Point", coordinates: at }, properties: { i: n, state: !!i.state_linked } };
+  }).filter(Boolean) });
+  for (const iso of CYBER.outaged) map.setFeatureState({ source: "countries", id: iso }, { outage: 0 });
+  CYBER.outaged = (d.outages?.countries || []).map(o => o.iso3);
+  for (const o of d.outages?.countries || []) map.setFeatureState({ source: "countries", id: o.iso3 }, { outage: o.level });
+  if (STATE && !selected && !selectedCountry && !readerOpen) renderCyberList();
+}
+function renderCyberList() {
+  $("#reader").hidden = true; readerOpen = false;
+  $("#detail").hidden = true; $("#list").hidden = false; $("#list-tools").hidden = true;
+  const d = CYBER.data;
+  if (!d) { $("#list").innerHTML = `<div class="empty">Loading cyber data…</div>`; return; }
+  const rs = d.ransomware, byC = {}, byG = {}, byS = {};
+  for (const r of rs) { if (r.country) byC[r.country] = (byC[r.country] || 0) + 1; byG[r.grp] = (byG[r.grp] || 0) + 1; if (r.sector) byS[r.sector] = (byS[r.sector] || 0) + 1; }
+  const top = (m, n, fmt) => Object.entries(m).sort((a, b) => b[1] - a[1]).slice(0, n).map(([k, v]) => `<span class="cy-chip">${fmt(k)} <b>${v}</b></span>`).join("");
+  const pairs = (d.attacks?.pairs || []).slice().sort((a, b) => b.share - a.share);
+  const outs = (d.outages?.countries || []).slice().sort((a, b) => b.score - a.score);
+  $("#list").innerHTML = `<div class="cyber-intro">Cyber mode: the attacks that don't show up as explosions. Nothing here is second-by-second:
+      each source says how old it is. <button class="linkish" id="cyber-off">Back to the conflicts</button></div>
+    <h3 class="gh3">Attacks in the news</h3>
+    ${d.incidents.slice(0, 40).map((i, n) => `<div class="card cy-inc" data-i="${n}" tabindex="0" role="button">
+      <div class="head"><span class="cy-kind k-${esc(i.kind)}">${esc(CYBER_KIND[i.kind] || i.kind)}</span><span class="name">${esc(i.title || i.victim)}</span><span class="date">${esc(i.date || "")}</span></div>
+      <div class="cy-meta">${cyberFlag(i.victim_country)} · ${esc(i.victim)}${i.attacker ? ` · by ${esc(i.attacker)}${i.attacker_country ? " " + flag(i.attacker_country) : ""}${i.state_linked ? ` <span class="cy-state" title="${esc(i.attribution ? "According to " + i.attribution : "")}">state-linked</span>` : ""}` : ""}</div>
+      ${i.summary ? `<div class="gtext">${esc(i.summary)}</div>` : ""}</div>`).join("") || `<div class="empty small">No attacks read from the news yet. The local model reads the cyber news with each refresh.</div>`}
+    <h3 class="gh3">Ransomware claims, last 7 days <span class="cy-n">${rs.length}</span></h3>
+    <div class="cy-block">${rs.length ? `<div class="cy-row">${top(byC, 8, k => cyberFlag(k))}</div><div class="cy-row">${top(byG, 6, esc)}</div><div class="cy-row">${top(byS, 6, esc)}</div>
+      <div class="cy-note">Posted by the gangs on their leak sites (via ransomware.live). A claim is not a confirmed breach, and victims aren't named here.</div>` : `<div class="empty small">No claims loaded yet.</div>`}</div>
+    <h3 class="gh3">Attacks between countries, last 24 h</h3>
+    <div class="cy-block">${!d.attacks_enabled ? `<div class="cy-note">Not switched on yet: this layer needs a Cloudflare Radar token on the server.</div>` :
+      pairs.slice(0, 12).map(p => `<div class="cy-pair"><span class="sw" style="background:${CYBER_COLOR[p.layer]}"></span>${cyberFlag(p.from)} → ${cyberFlag(p.to)}<span class="v">${p.share}%</span></div>`).join("") +
+      `<div class="cy-note">Share of the attack traffic Cloudflare saw (<span style="color:${CYBER_COLOR.l3}">DDoS</span>, <span style="color:${CYBER_COLOR.l7}">web attacks</span>). Updated ${esc(ago(d.attacks.updated))}.</div>`}</div>
+    <h3 class="gh3">Internet outages, last 24 h</h3>
+    <div class="cy-block">${outs.slice(0, 10).map(o => `<div class="cy-pair"><span class="sw" style="background:${CYBER_COLOR.outage};opacity:${0.35 + o.level * 0.2}"></span>${cyberFlag(o.iso3)}<span class="v" title="IODA outage score; signals: ${esc(o.signals.join(", "))}">${["", "minor", "moderate", "severe"][o.level]}</span></div>`).join("")
+      || `<div class="empty small">No country-wide outages detected.</div>`}
+      <div class="cy-note">IODA (Georgia Tech) outage signals. Causes vary: shutdowns, cable cuts, power cuts and attacks all look alike here.</div></div>`;
+  $("#cyber-off").addEventListener("click", () => setCyber(false));
+  document.querySelectorAll("#list .cy-inc").forEach(el => el.addEventListener("click", () => openCyberIncident(+el.dataset.i)));
+}
+function openCyberIncident(n) {
+  const i = CYBER.data?.incidents[n]; if (!i) return;
+  const src = (i.sources || [])[0];
+  const c = COUNTRIES[i.victim_country];
+  if (c) map.flyTo({ center: [c.lon, c.lat], zoom: Math.max(map.getZoom(), 3.5), speed: 0.9, padding: sheetPadding() });
+  if (src) openArticle(src.link, { title: src.title, source: src.outlet || src.source, context: cyberIncidentHtml(i),
+                                   alternatives: i.sources.length > 1 ? i.sources.map(s => s.link) : null });
+}
+function cyberDash(on) {
+  clearInterval(CYBER.dash); CYBER.dash = null;
+  if (!on) return;
+  let step = 0;
+  CYBER.dash = setInterval(() => {
+    if (document.hidden) return;
+    step = (step + 1) % DASH_SEQ.length;
+    map.setPaintProperty("cyber-arcs", "line-dasharray", DASH_SEQ[step]);
+  }, 70);
+}
+function setCyber(on) {
+  if (on === CYBER.on) return;
+  if (on && GOOD.on) setGood(false);
+  CYBER.on = on;
+  document.body.classList.toggle("cyber-mode", on);
+  $("#cyber-btn").setAttribute("aria-pressed", on); $("#tg-cyber").checked = on;
+  try { localStorage.setItem("cyberMode", on ? "1" : "0"); } catch (_) {}
+  if (on) {
+    CYBER.stash = {};
+    for (const id of CYBER_HIDES) { const el = document.getElementById(id); CYBER.stash[id] = el.type === "checkbox" ? el.checked : el.value; }
+    for (const id of CYBER_HIDES) setControl(id, false);
+  } else {
+    const stash = CYBER.stash || {}; CYBER.stash = null;
+    for (const [id, v] of Object.entries(stash)) setControl(id, v);
+  }
+  for (const id of CYBER_HIDES) document.getElementById(id).disabled = on;
+  for (const id of CYBER_LAYERS) if (map.getLayer(id)) map.setLayoutProperty(id, "visibility", on ? "visible" : "none");
+  cyberDash(on);
+  clearInterval(CYBER.timer); CYBER.timer = null;
+  if (on) { loadCyber(); CYBER.timer = setInterval(loadCyber, 5 * 60000); }
+  if (!$("#news").hidden) loadHeadlines();
+  syncLegend(); saveSettings();
+  if (GOOD.raw) { STATE = viewOf(GOOD.raw); LIST.status = ""; render(); }
+}
+$("#cyber-btn").addEventListener("click", () => setCyber(!CYBER.on));
+$("#tg-cyber").addEventListener("change", (e) => setCyber(e.target.checked));
 
 /* ---------- strikes ---------- */
 let strikeAnim = null;      // {items:[{path, color, id, hasPath}], start}
@@ -2065,17 +2265,17 @@ const PIN = `<svg viewBox="0 0 16 16" width="10" height="10" aria-hidden="true">
 function headlineConflict(h) { return h.conflict && STATE && STATE.conflicts ? STATE.conflicts.find(c => c.id === h.conflict) : null; }
 async function loadHeadlines() {
   let items;
-  try { const r = await fetch(`/api/headlines?good=${GOOD.on ? 1 : 0}`); if (!r.ok) throw new Error(r.status); items = (await r.json()).items || []; }
+  try { const r = await fetch(`/api/headlines?good=${GOOD.on ? 1 : 0}&cyber=${CYBER.on ? 1 : 0}`); if (!r.ok) throw new Error(r.status); items = (await r.json()).items || []; }
   catch (_) { if (NEWS.items.length) return; items = []; }                // keep the last list through a hiccup
   NEWS.items = items;
   $("#news").hidden = false;
-  $("#news .news-h").textContent = GOOD.on ? "Good news headlines" : "Top headlines";
-  $("#news-foot-key").hidden = GOOD.on;
+  $("#news .news-h").textContent = CYBER.on ? "Cyber headlines" : GOOD.on ? "Good news headlines" : "Top headlines";
+  $("#news-foot-key").hidden = GOOD.on || CYBER.on;
   $("#news-list").innerHTML = items.map((h, i) => {
     const others = h.outlets.filter(o => o !== h.outlet);
     const c = GOOD.on ? null : headlineConflict(h);
-    const edge = c ? (STATUS_COLOR[c.status] || STATUS_COLOR.active) : (LOCAL_COLOR[h.topic] || LOCAL_COLOR.other);
-    const tip = c ? `${c.name}: ${STATUS_LABEL[c.status] || c.status}` : { violence: "violence & crime", tension: "protest & tension", good: "good news" }[h.topic] || "other news";
+    const edge = c ? (STATUS_COLOR[c.status] || STATUS_COLOR.active) : h.topic === "cyber" ? CYBER_COLOR.news : (LOCAL_COLOR[h.topic] || LOCAL_COLOR.other);
+    const tip = c ? `${c.name}: ${STATUS_LABEL[c.status] || c.status}` : { violence: "violence & crime", tension: "protest & tension", good: "good news", cyber: "cyber news" }[h.topic] || "other news";
     return `<li tabindex="0" role="button" data-i="${i}" style="--hl:${edge}" title="${esc(h.place ? `Opens the article and shows ${h.place.name} on the map` : "Opens the article")}">
       <div class="t">${esc(h.title)}</div>
       <div class="m"><span class="tp" title="${esc(tip)}"></span>${esc(h.outlet)} · ${esc(ago(h.published))}${others.length ? ` · <span class="n" title="Also: ${esc(others.join(", "))}">${h.outlets.length} outlets</span>` : ""}${h.place ? ` · <span class="pl">${PIN}${esc(h.place.name)}</span>` : ""}</div>

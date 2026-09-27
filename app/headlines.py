@@ -13,7 +13,7 @@ import time
 from functools import lru_cache
 
 from . import countries, geo, goodnews
-from .config import outlet_of
+from .config import OUTLETS, outlet_of
 from .db import all_conflicts, db
 
 # UN agencies, the Red Cross and investigators publish reports, not the day's headlines
@@ -53,6 +53,13 @@ def _same_story(a: set[str], b: set[str]) -> bool:
     # against the average length, not the shorter one: two words ("South Africa") can't carry a story on their own
     return shared >= 2 and shared / ((len(a) + len(b)) / 2) >= 0.4
 
+
+CYBER_TERMS = re.compile(r"\b(cyber|hack|hacker|hackers|hacked|ransomware|malware|ddos|data breach|spyware|phishing|botnet|"
+                         r"zero-day|state-sponsored|infostealer|cyberattack|cyber-attack)", re.I)
+# the cyber outlets also run product and industry news; cyber mode keeps the security stories
+SECURITY = re.compile(r"\b(attack|breach|hack|ransom|malware|exploit|zero-day|vulnerab|flaw|cve-|leak|stolen|steal|phish|"
+                      r"backdoor|espionage|spy|ddos|botnet|compromis|intrusion|threat actor|apt\d*|wiper|extort|scam|fraud|"
+                      r"sanction|arrest|charged|takedown|seiz|patch|infostealer|trojan|worm|payload|supply.chain)", re.I)
 
 # ---- topic: the same four kinds as the local news layer. Disasters and accidents come first so
 # ---- "avalanche leaves 2 dead" is not filed as violence.
@@ -219,7 +226,10 @@ def _conflict_links(con) -> dict[str, str]:
     return out
 
 
-def _build(hours: int, limit: int, good: bool) -> list[dict]:
+CYBER_OUTLETS = {k for k, v in OUTLETS.items() if v.get("cyber")}
+
+
+def _build(hours: int, limit: int, good: bool, cyber: bool = False) -> list[dict]:
     since = int(time.time()) - hours * 3600
     with db() as con:
         rows = con.execute("SELECT link, source, title, published FROM articles WHERE published > ? "
@@ -230,6 +240,11 @@ def _build(hours: int, limit: int, good: bool) -> list[dict]:
     for link, source, title, published in rows:
         outlet = outlet_of(source)
         if not outlet or outlet in NOT_NEWS or not title:
+            continue
+        # cyber mode: the cyber outlets plus cyber stories elsewhere; otherwise the cyber outlets stay out
+        if cyber and ((outlet not in CYBER_OUTLETS and not CYBER_TERMS.search(title)) or not SECURITY.search(title)):
+            continue
+        if not cyber and outlet in CYBER_OUTLETS:
             continue
         words = _words(title)
         if len(words) < 2:
@@ -264,20 +279,20 @@ def _build(hours: int, limit: int, good: bool) -> list[dict]:
         if not place and epi and epi.get("lat") is not None:
             place = {"name": epi.get("label") or "", "lat": epi["lat"], "lon": epi["lon"], "zoom": 5}
         out.append({**{k: s[k] for k in ("title", "link", "outlet", "published", "outlets", "first")},
-                    "topic": "good" if good else _topic(s["titles"]), "conflict": conflict, "place": place})
+                    "topic": "good" if good else "cyber" if cyber else _topic(s["titles"]), "conflict": conflict, "place": place})
     return out
 
 
-def top(limit: int = 10, good: bool = False) -> list[dict]:
+def top(limit: int = 10, good: bool = False, cyber: bool = False) -> list[dict]:
     """Cached for a minute: the feeds are only fetched every few minutes anyway."""
-    key = (limit, good)
+    key = (limit, good, cyber)
     with _lock:
         hit = _cache.get(key)
         if hit and time.time() - hit[0] < 60:
             return hit[1]
-        items = _build(12, limit, good)
-        if len(items) < limit:                     # a quiet night: reach back a full day
-            items = _build(24, limit, good)
+        items = _build(12, limit, good, cyber)
+        if len(items) < limit:                     # a quiet night (or the slower cyber news): reach back further
+            items = _build(48 if cyber else 24, limit, good, cyber)
         _cache[key] = (time.time(), items)
         return items
 

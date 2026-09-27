@@ -56,6 +56,18 @@ CREATE TABLE IF NOT EXISTS local_news (
     root INTEGER, quad INTEGER, mentions INTEGER, tone REAL
 );
 CREATE INDEX IF NOT EXISTS idx_local_news_geo ON local_news(lat, lon);
+-- cyber mode: ransomware leak-site claims (ransomware.live), incidents read from the news, articles already read
+CREATE TABLE IF NOT EXISTS cyber_ransom (
+    id TEXT PRIMARY KEY, grp TEXT, sector TEXT, country TEXT, attacked INTEGER, discovered INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_cyber_ransom_disc ON cyber_ransom(discovered);
+CREATE TABLE IF NOT EXISTS cyber_incidents (
+    id INTEGER PRIMARY KEY AUTOINCREMENT, key TEXT UNIQUE, date TEXT, kind TEXT, title TEXT, summary TEXT,
+    victim TEXT, sector TEXT, victim_country TEXT, attacker TEXT, attacker_country TEXT, state_linked INTEGER,
+    attribution TEXT, verified INTEGER, sources TEXT, created INTEGER, updated INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_cyber_incidents_date ON cyber_incidents(date);
+CREATE TABLE IF NOT EXISTS cyber_seen (link TEXT PRIMARY KEY, seen INTEGER);
 """
 
 

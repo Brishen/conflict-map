@@ -16,7 +16,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 
-from . import aircraft, countries, ships, gdelt, goodnews, headlines, livetv, pipeline, reader
+from . import aircraft, countries, cyber, ships, gdelt, goodnews, headlines, livetv, pipeline, reader
 from .config import OUTLETS, outlet_of, AIRCRAFT_ENABLED, DATA_DIR, DISCORD_REPORTS_WEBHOOK, GDELT_WINDOW_HOURS, REFRESH_MINUTES, SERVE_ONLY, STATIC_DIR
 from .db import all_conflicts, db, get_state, store_report
 
@@ -91,7 +91,8 @@ def build_state(hours: int, strike_days: int) -> dict:
             "skipped": con.execute("SELECT COUNT(*) FROM articles WHERE processed=2").fetchone()[0],
             # outlets (not feeds) currently in use that published something this week
             "sources": len({outlet_of(r[0]) for r in con.execute(
-                "SELECT DISTINCT source FROM articles WHERE published > strftime('%s','now') - 7*86400")} - {None}),
+                "SELECT DISTINCT source FROM articles WHERE published > strftime('%s','now') - 7*86400")}
+                - {None} - {k for k, v in OUTLETS.items() if v.get("cyber")}),   # cyber-only outlets count in cyber mode
             "busy": _lock.locked(),
             "serve_only": SERVE_ONLY,
             "outlets": {k: {"country": v["country"], "note": v["note"]} for k, v in OUTLETS.items()},
@@ -267,9 +268,15 @@ def territory_view():
 
 
 @app.get("/api/headlines")
-async def top_headlines(good: bool = False):
-    items = await asyncio.to_thread(headlines.top, 10, good)
+async def top_headlines(good: bool = False, cyber: bool = False):
+    items = await asyncio.to_thread(headlines.top, 10, good, cyber)
     return JSONResponse({"items": items}, headers={"Cache-Control": "max-age=120"})
+
+
+@app.get("/api/cyber")
+async def cyber_view():
+    data = await asyncio.to_thread(cyber.view)
+    return JSONResponse(data, headers={"Cache-Control": "max-age=120"})
 
 
 @app.get("/api/live-tv")

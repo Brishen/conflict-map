@@ -9,7 +9,7 @@ from html import unescape
 import feedparser
 import httpx
 
-from .config import FEEDS, RELEVANCE_TERMS
+from .config import CYBER_FEEDS, FEEDS, RELEVANCE_TERMS
 from .db import db
 
 log = logging.getLogger("feeds")
@@ -44,7 +44,8 @@ def _fetch(name_url):
         ts = calendar.timegm(pub) if pub else int(time.time())
         title = _clean(e.get("title", ""), 300)
         summary = _clean(e.get("summary", ""))
-        relevant = bool(RELEVANT.search(title + " " + summary))
+        # cyber feeds are for cyber mode only: the conflict extraction skips them (processed=2)
+        relevant = name not in CYBER_FEEDS and bool(RELEVANT.search(title + " " + summary))
         rows.append((link, name, title, summary, ts, int(time.time()), 0 if relevant else 2))
     return name, rows
 

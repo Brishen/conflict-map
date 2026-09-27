@@ -5,7 +5,7 @@ import sqlite3
 import subprocess
 import time
 
-from . import advisories, cleanup, dedupe, extract, feeds, gdelt, territory
+from . import advisories, cleanup, cyber, dedupe, extract, feeds, gdelt, territory
 from . import stats as figures
 from .config import DATA_DIR, DB_PATH, PUSH_TARGET
 from .db import db, set_state, store_report
@@ -31,7 +31,13 @@ def refresh(skip_llm: bool = False, gdelt_files: int | None = None):
     except Exception as e:  # noqa: BLE001  (the last good copy stays)
         log.exception("territory failed")
         stats["territory_error"] = str(e)
+    stats["cyber"] = cyber.refresh_feeds()                 # logs and keeps the last good copy on failure
     if not skip_llm:
+        try:
+            stats["cyber"]["incidents"] = cyber.extract_all()
+        except Exception as e:  # noqa: BLE001
+            log.exception("cyber extraction failed")
+            stats["cyber"]["incidents_error"] = str(e)
         try:
             stats["conflicts_updated"] = extract.run_all()
             stats["duplicates_merged"] = dedupe.merge_duplicates()

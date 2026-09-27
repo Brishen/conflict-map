@@ -189,6 +189,26 @@ https://aisstream.io; without one the layer shows "(off)". On the server put it 
 Most warships switch AIS off; auxiliaries (USNS, RFA), patrol and coast-guard vessels
 are what usually shows up.
 
+## Cyber mode
+
+The "Cyber" button (in Layers on phones) swaps the physical conflicts for the virtual ones (`app/cyber.py`,
+`/api/cyber`). Every source is shown with its real delay: none of this is a packet-by-packet live feed.
+
+- **Attacks between countries**: Cloudflare Radar's top origin → target pairs for network-layer (DDoS) and
+  web-application attacks over the last 24 h, drawn as moving arcs sized by share. Needs a free API token
+  with "Radar: Read" (Cloudflare dashboard → My Profile → API Tokens) on the **home pipeline**: put
+  `CLOUDFLARE_RADAR_TOKEN=...` in `.env` next to `run.sh` and restart. Without it the layer says it is off.
+  For DDoS the origin is where the traffic entered Cloudflare, not necessarily who sent it.
+- **Ransomware claims**: ransomware.live's recent victims from the gangs' leak sites, 7 days, per country.
+  Only group, sector and country are kept; victims are never named (that would do the extortion's work).
+- **Internet outages**: IODA (Georgia Tech) country outage scores, last 24 h; shutdowns, cable and power
+  cuts and attacks all look alike there.
+- **Attacks in the news**: six cyber feeds (The Record, BleepingComputer, SecurityWeek, Dark Reading, Krebs)
+  plus cyber stories in the general feeds are read by the local model (`CYBER_BATCH` articles per call,
+  `CYBER_MAX_BATCHES` calls per refresh). Attacker and state links are kept only when the article gives
+  them, and each incident, attribution and state link is checked against the article like the conflict
+  claims. The cyber feeds never reach the conflict extraction.
+
 ## Contributing
 
 Issues and pull requests are welcome: https://github.com/Comm4nd0/conflict-map
