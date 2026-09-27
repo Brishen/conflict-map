@@ -212,7 +212,6 @@ a.cite:hover { color: var(--ink); }
 .about ul.outlets { padding-left: 0; list-style: none; gap: 3px; }
 .about ul.outlets span { color: var(--muted); font-size: 12px; }
 .about a { color: var(--ink-2); }
-#about-btn { white-space: nowrap; }
 
 /* country view */
 .rel-key { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 11.5px; color: var(--ink-2); margin: 2px 0 10px; }
@@ -276,10 +275,14 @@ a.cite:hover { color: var(--ink); }
 @keyframes ring { 0% { transform: scale(.6); opacity: .8; } 100% { transform: scale(2.2); opacity: 0; } }
 
 /* legend */
-#legend-btn { position: absolute; left: 12px; bottom: 12px; z-index: 6; background: rgba(26,26,25,.92); }
-#legend-btn[aria-expanded="true"] { border-color: var(--ink-2); }
-#legend { position: absolute; left: 12px; bottom: 50px; z-index: 6; background: rgba(26,26,25,.92); border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; font-size: 12px; color: var(--ink-2); display: none; flex-direction: column; gap: 5px; max-width: min(520px, calc(100% - 24px)); }
-body.legend-open #legend { display: flex; }
+#legend { position: absolute; left: 12px; bottom: 12px; z-index: 6; background: rgba(26,26,25,.92); border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; font-size: 12px; color: var(--ink-2); display: flex; flex-direction: column; gap: 5px; max-width: min(520px, calc(100% - 24px)); cursor: pointer; user-select: none; }
+/* clicking the key minimises it to a small "Key" tab; clicking the tab opens it again */
+.legend-h { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); display: flex; align-items: center; gap: 6px; }
+.legend-h::after { content: "▾"; font-size: 10px; }
+body:not(.legend-open) .legend-h { font-size: 12px; color: var(--ink-2); }
+body:not(.legend-open) .legend-h::after { content: "▴"; }
+body:not(.legend-open) #legend .row { display: none; }
+#legend:hover, #legend:focus-visible { border-color: var(--ink-2); }
 #legend .row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 #legend .row.off { display: none; }
 #legend .note { color: var(--ink-2); opacity: .8; }
@@ -440,10 +443,9 @@ body.legend-open #legend { display: flex; }
   .party { flex-wrap: wrap; }
   .party .note { flex-basis: 100%; margin-left: 28px; text-align: left; }
 
-  /* legend behind a "Key" button, top-right of the map */
-  #legend-btn { top: 10px; bottom: auto; left: auto; right: max(10px, env(safe-area-inset-right));
-                min-height: 34px; padding: 4px 12px; font-size: 13px; }
-  #legend { left: auto; right: max(10px, env(safe-area-inset-right)); top: 52px; bottom: auto; max-width: calc(100% - 20px); }
+  /* the key sits top-right of the map (the bottom is the sheet), minimised until tapped */
+  #legend { left: auto; right: max(10px, env(safe-area-inset-right)); top: 10px; bottom: auto; max-width: calc(100% - 20px); }
+  body:not(.legend-open) #legend { min-height: 34px; justify-content: center; padding: 4px 12px; }
 
   #tv-btn { margin-left: auto; min-height: 36px; padding: 6px 12px; font-size: 13px; }
   #tv-btn .long { display: none; } #tv-btn .short { display: inline; }
@@ -460,7 +462,6 @@ body.legend-open #legend { display: flex; }
 @media (min-width: 901px) and (max-width: 1100px) { .brand .gh { padding: 4px 6px; } .brand .gh span { display: none; } .brand .sub { display: none; } }
 @media (max-width: 900px) { #detail .ccard { margin: 0 -16px; } }
 .menu-about { align-self: flex-start; font-size: 12px; }
-@media (max-width: 900px) { #about-btn { display: none; } }
 
 /* ---------- good news mode ---------- */
 .sun { display: inline-block; width: 9px; height: 9px; border-radius: 50%; background: #5fd38d; flex: none; }

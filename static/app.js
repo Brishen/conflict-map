@@ -2325,7 +2325,7 @@ function toggleMenu(on = !document.body.classList.contains("menu-open")) {
 }
 function toggleLegend(on = !document.body.classList.contains("legend-open"), remember = false) {
   document.body.classList.toggle("legend-open", on);
-  $("#legend-btn").setAttribute("aria-expanded", on);
+  $("#legend").setAttribute("aria-expanded", on);
   if (on && isMobile()) toggleMenu(false);
   if (remember && !isMobile()) try { localStorage.setItem("legendOpen", on ? "1" : "0"); } catch (_) {}
 }
@@ -2341,7 +2341,8 @@ function syncLegend() {
 }
 $("#menu-btn").addEventListener("click", () => { toggleMenu(); if (document.body.classList.contains("menu-open")) $("#menu-close").focus(); });
 $("#menu-close").addEventListener("click", () => { toggleMenu(false); $("#menu-btn").focus(); });
-$("#legend-btn").addEventListener("click", () => toggleLegend(undefined, true));
+$("#legend").addEventListener("click", (e) => { if (!e.target.closest("a")) toggleLegend(undefined, true); });
+$("#legend").addEventListener("keydown", (e) => { if (e.target === e.currentTarget && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); toggleLegend(undefined, true); } });
 $("#controls").addEventListener("change", syncLegend);
 document.addEventListener("click", (e) => {       // click anywhere outside the layers popover closes it
   if (document.body.classList.contains("menu-open") && !e.target.closest("#controls, #menu-btn, #map")) toggleMenu(false);
