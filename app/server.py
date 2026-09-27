@@ -8,6 +8,8 @@ import re
 import threading
 import time
 import uuid
+
+import httpx
 from datetime import datetime, timedelta, timezone
 
 from fastapi import FastAPI, Request
@@ -15,7 +17,7 @@ from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 from . import aircraft, countries, ships, gdelt, goodnews, livetv, pipeline, reader
-from .config import OUTLETS, outlet_of, AIRCRAFT_ENABLED, DATA_DIR, GDELT_WINDOW_HOURS, REFRESH_MINUTES, SERVE_ONLY, STATIC_DIR
+from .config import OUTLETS, outlet_of, AIRCRAFT_ENABLED, DATA_DIR, DISCORD_REPORTS_WEBHOOK, GDELT_WINDOW_HOURS, REFRESH_MINUTES, SERVE_ONLY, STATIC_DIR
 from .db import all_conflicts, db, get_state, store_report
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
@@ -312,6 +314,7 @@ async def presence(request: Request):
 REPORT_KINDS = {"conflict", "strike", "incident", "local"}
 REPORT_LIMIT = [(600, 5), (86400, 30)]        # per client: 5 per 10 min, 30 per day
 _report_hits: dict[str, list[float]] = {}
+_bg_tasks: set = set()
 
 
 @app.post("/api/report")
@@ -342,7 +345,33 @@ async def report(request: Request):
     else:
         with db() as con:
             store_report(con, rec)
+    if DISCORD_REPORTS_WEBHOOK:
+        t = asyncio.create_task(_post_report_to_discord(rec))
+        _bg_tasks.add(t); t.add_done_callback(_bg_tasks.discard)      # keep a reference until it is done
     return JSONResponse({"ok": True})
+
+
+async def _post_report_to_discord(rec: dict):
+    """Best effort: a failed post only gets logged, the report is already stored."""
+    kind = {"conflict": "Conflict", "strike": "Attack", "incident": "Incident", "local": "Local news"}.get(rec["kind"], rec["kind"])
+    fields = [{"name": "Item", "value": (rec["title"] or rec["ref"] or "(none)")[:1000]}]
+    if rec["note"]:
+        fields.append({"name": "Note", "value": rec["note"][:1000]})
+    if rec["page"]:
+        fields.append({"name": "Page", "value": rec["page"][:1000]})
+    payload = {
+        "username": "Global News Map reports",
+        "allowed_mentions": {"parse": []},          # visitor text must never ping @everyone or anyone else
+        "embeds": [{"title": f"⚑ {kind}: {rec['reason']}"[:250], "fields": fields, "color": 0xD03B3B,
+                    "footer": {"text": f"report {rec['id'][:8]} · {rec['kind']} {rec['ref']}"[:2000]},
+                    "timestamp": datetime.fromtimestamp(rec["ts"], timezone.utc).isoformat()}],
+    }
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            r = await client.post(DISCORD_REPORTS_WEBHOOK, json=payload)
+            r.raise_for_status()
+    except Exception as e:  # noqa: BLE001
+        log.warning("posting report %s to Discord failed: %s", rec["id"], e)
 
 
 @app.get("/api/reports")

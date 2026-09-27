@@ -20,6 +20,8 @@ REFRESH_MINUTES = int(os.environ.get("REFRESH_MINUTES", "30"))
 SERVE_ONLY = os.environ.get("SERVE_ONLY", "0") == "1"
 # After each refresh, copy the database to this scp target (e.g. "luma:/root/conflict-map/data"). Empty = off.
 PUSH_TARGET = os.environ.get("PUSH_TARGET", "")
+# optional: a Discord webhook URL; every visitor's problem report is also posted there (a secret, keep it in .env)
+DISCORD_REPORTS_WEBHOOK = os.environ.get("DISCORD_REPORTS_WEBHOOK", "")
 ARTICLES_PER_BATCH = int(os.environ.get("ARTICLES_PER_BATCH", "40"))
 
 # Military aircraft layer (public ADS-B). Runs in both pipeline and SERVE_ONLY mode.

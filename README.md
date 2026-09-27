@@ -154,6 +154,13 @@ Deploy an update: `ssh luma 'cd /root/conflict-map && git pull --ff-only && dock
 - Conflicts are never deleted automatically. `last_seen` is stored; stale ones can be
   filtered in the UI later.
 
+## Problem reports to Discord
+
+Visitors' "⚑ Report a problem" reports can also be posted to a Discord channel as they come in. Create a
+webhook (channel settings → Integrations → Webhooks, ideally in a private channel) and put its URL in
+`/root/conflict-map/.env` as `DISCORD_REPORTS_WEBHOOK=...`, then `docker compose up -d`. Reports are still
+stored and pulled home as before; a failed post is only logged. Mentions in visitors' text never ping anyone.
+
 ## Military ships layer
 
 Naval vessels from AIS via aisstream.io, limited to watched seas (`SHIPS_BOXES` in
