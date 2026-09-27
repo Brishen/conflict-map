@@ -1,5 +1,5 @@
 [Unit]
-Description=Conflict Map pipeline (feeds + GDELT + local LLM extraction every 30 min, pushes DB to Luma001) and local viewer on :8765
+Description=Global News Map pipeline (feeds + GDELT + local LLM extraction every 30 min, pushes DB to Luma001) and local viewer on :8765
 After=network-online.target llama-swap.service
 Wants=network-online.target llama-swap.service
 

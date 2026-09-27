@@ -1,4 +1,6 @@
-# Conflict Map
+# Global News Map
+
+Live at **https://globalnewsmap.org** (formerly conflicts.lumatechsolutions.co.uk, which now redirects there).
 
 A fully local, news-driven world map of current armed conflicts: who is fighting,
 who is backing whom, and what the consequences are.
@@ -119,7 +121,8 @@ no pipeline loop, `/api/refresh` returns 403, the Refresh button is hidden.
 
 ```
 /root/conflict-map          git clone of this repo (public), docker compose, port 172.17.0.1:8030
-/root/caddy/Caddyfile       conflicts.lumatechsolutions.co.uk { reverse_proxy 172.17.0.1:8030 }
+/root/caddy/Caddyfile       globalnewsmap.org { reverse_proxy 172.17.0.1:8030 }; www. and the old
+                            conflicts.lumatechsolutions.co.uk redirect (301) to https://globalnewsmap.org
 ```
 
 Deploy an update: `ssh luma 'cd /root/conflict-map && git pull --ff-only && docker compose up -d --build'`.

@@ -1,4 +1,4 @@
-/* Conflict Map — frontend */
+/* Global News Map — frontend */
 const STATUS_COLOR = {
   escalating: "#d03b3b", active: "#ec835a", "de-escalating": "#fab219",
   ceasefire: "#0ca30c", frozen: "#898781",
@@ -1011,7 +1011,7 @@ function openAbout() {
   r.innerHTML = `<button class="back">← back</button>
     <h2>How this works</h2>
     <div class="about">
-      <p>Conflict Map reads a small set of established news outlets every 30 minutes. An AI model running on our own machine turns those reports into the conflicts, parties, developments and attacks you see here. It is a news digest, not an intelligence product. Don't rely on it for safety decisions.</p>
+      <p>Global News Map reads a small set of established news outlets every 30 minutes. An AI model running on our own machine turns those reports into the conflicts, parties, developments and attacks you see here. It is a news digest, not an intelligence product. Don't rely on it for safety decisions.</p>
       <h3>Sources</h3>
       <p>Only outlets with strong editorial standards and a public corrections record, whose articles we can read in full:</p>
       <ul class="outlets">${outlets.map(([k, v]) => `<li><b>${esc(k)}</b> <span>${esc(v.note)}</span></li>`).join("")}</ul>

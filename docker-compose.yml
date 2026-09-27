@@ -1,5 +1,5 @@
 # Deployed at /root/conflict-map on Luma001. Caddy proxies
-# conflicts.lumatechsolutions.co.uk -> 172.17.0.1:8030.
+# globalnewsmap.org -> 172.17.0.1:8030 (old conflicts.lumatechsolutions.co.uk redirects there).
 # Viewer only: the database is pushed here by the home pipeline (see README).
 services:
   web:
