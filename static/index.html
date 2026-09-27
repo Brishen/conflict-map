@@ -111,10 +111,12 @@
   </aside>
   <button id="legend-btn" aria-expanded="false" aria-controls="legend" title="Map key">Key</button>
   <div id="legend" role="region" aria-label="Map key">
-    <div class="row"><span class="sev s5"></span><span class="sev s3"></span><span class="sev s1"></span> conflict severity</div>
-    <div class="row"><span class="mkk st-escalating"></span> escalating <span class="mkk st-active"></span> active <span class="mkk st-de-escalating"></span> easing <span class="mkk st-ceasefire"></span> ceasefire <span class="mkk st-frozen"></span> frozen</div>
+    <div class="row bad-only"><span class="sev s5"></span><span class="sev s3"></span><span class="sev s1"></span> conflict severity</div>
+    <div class="row good-only"><span class="mkk good"></span> conflict with progress towards peace (larger = more severe)</div>
+    <div class="row bad-only"><span class="mkk st-escalating"></span> escalating <span class="mkk st-active"></span> active <span class="mkk st-de-escalating"></span> easing <span class="mkk st-ceasefire"></span> ceasefire <span class="mkk st-frozen"></span> frozen</div>
     <div class="row" data-layer="tg-heat"><span class="ramp"></span> GDELT conflict-event mentions</div>
-    <div class="row" data-layer="tg-arcs"><span class="line a"></span> side A <span class="line b"></span> side B <span class="line other"></span> mediator</div>
+    <div class="row good-only" data-layer="tg-arcs"><span class="line other"></span> mediator</div>
+    <div class="row bad-only" data-layer="tg-arcs"><span class="line a"></span> side A <span class="line b"></span> side B <span class="line other"></span> mediator</div>
     <div class="row" data-layer="tg-gdelt-arcs"><span class="line gd"></span> GDELT actor link</div>
     <div class="row" data-layer="tg-strikes" id="weapon-legend"></div>
     <div class="row" data-layer="tg-incidents"><span class="sw inc"></span> press-reported incident (GDELT, zoom in)</div>

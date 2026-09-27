@@ -430,6 +430,7 @@ body.legend-open #legend { display: flex; }
 #good-btn[aria-pressed="true"] .sun { box-shadow: 0 0 0 3px rgba(95,211,141,.25); }
 body:not(.good-mode) #legend .good-only, body.good-mode #legend .bad-only { display: none; }
 .ln.g { background: #5fd38d; }
+.mkk.good { color: #5fd38d; }
 body.good-mode .controls label:has(:disabled) { opacity: .4; }
 body.good-mode .mk { color: #5fd38d !important; }
 body.good-mode .mk::after { animation: none; opacity: 0; }
