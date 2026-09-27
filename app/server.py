@@ -142,7 +142,9 @@ def _db_version() -> float:
 
 def _cached_state(hours: int, strike_days: int) -> dict:
     key = (hours, strike_days)
-    ver, now = _db_version(), time.time()
+    # the refresh lock is part of the version: a refresh's last write happens while it still holds the lock,
+    # so without this the cached "busy" stayed true until the next database change
+    ver, now = (_db_version(), _lock.locked()), time.time()
     hit = _state_cache.get(key)
     if hit and (hit["ver"] == ver or now - hit["built"] < STATE_MIN_AGE):
         return hit
