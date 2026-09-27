@@ -134,7 +134,6 @@ function setHashParam(k, v) {
   if (v) q.set(k, v); else q.delete(k);
   history.replaceState(null, "", "#" + q.toString().replace(/%2F/g, "/"));
 }
-map.addControl(new maplibregl.NavigationControl({ showCompass: false }), "top-left");
 {
   let t = null;
   map.on("moveend", () => {
@@ -1662,6 +1661,7 @@ function setGood(on) {
   for (const id of ["local-news", "local-news-outline"]) map.setLayerZoomRange(id, on ? 0 : LOCAL_MINZOOM, 24);
   map.getSource("local-news").setData({ type: "FeatureCollection", features: [] });   // no leftover stories from the other mode
   loadLocalNews();
+  if (!$("#news").hidden) loadHeadlines();
   syncLegend(); saveSettings();
   if (GOOD.raw) { STATE = on ? goodView(GOOD.raw) : GOOD.raw; LIST.status = ""; render(); }
 }
@@ -2057,6 +2057,37 @@ new ResizeObserver(placeTv).observe($("#panel"));
   if (pref === "1" || (pref == null && !isMobile() && !good)) openTv();
 }
 
+/* ---------- top headlines under the TV: the stories the most outlets are running; they open in the reader ---------- */
+const NEWS = { items: [] };
+async function loadHeadlines() {
+  let items;
+  try { const r = await fetch(`/api/headlines?good=${GOOD.on ? 1 : 0}`); if (!r.ok) throw new Error(r.status); items = (await r.json()).items || []; }
+  catch (_) { if (NEWS.items.length) return; items = []; }                // keep the last list through a hiccup
+  NEWS.items = items;
+  $("#news").hidden = false;
+  $("#news .news-h").textContent = GOOD.on ? "Good news headlines" : "Top headlines";
+  $("#news-list").innerHTML = items.map((h, i) => {
+    const others = h.outlets.filter(o => o !== h.outlet);
+    return `<li tabindex="0" role="button" data-i="${i}"><div class="t">${esc(h.title)}</div>
+      <div class="m">${esc(h.outlet)} · ${esc(ago(h.published))}${others.length ? ` · <span class="n" title="Also: ${esc(others.join(", "))}">${h.outlets.length} outlets</span>` : ""}</div></li>`;
+  }).join("") || `<li class="empty">No headlines to show right now.</li>`;
+}
+function openHeadline(el) {
+  const h = NEWS.items[+el.dataset.i]; if (!h) return;
+  const others = h.outlets.filter(o => o !== h.outlet);
+  openArticle(h.link, { title: h.title, source: h.outlet, context: others.length ? `Also running this story: ${esc(others.join(", "))}` : "" });
+}
+$("#news-list").addEventListener("click", (e) => { const li = e.target.closest("li[data-i]"); if (li) openHeadline(li); });
+$("#news-list").addEventListener("keydown", (e) => { const li = e.target.closest("li[data-i]"); if (li && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); openHeadline(li); } });
+function setNewsOpen(on) { $("#news").classList.toggle("shut", !on); $("#news-toggle").setAttribute("aria-expanded", on); }
+$("#news-toggle").addEventListener("click", () => {
+  const on = $("#news").classList.contains("shut"); setNewsOpen(on);
+  try { localStorage.setItem("news.open", on ? "1" : "0"); } catch (_) {}
+});
+{ let pref = null; try { pref = localStorage.getItem("news.open"); } catch (_) {} setNewsOpen(pref !== "0"); }
+if (!isMobile()) { loadHeadlines(); setInterval(loadHeadlines, 5 * 60000); }
+else mobileMQ.addEventListener("change", function once() { if (!isMobile()) { mobileMQ.removeEventListener("change", once); loadHeadlines(); setInterval(loadHeadlines, 5 * 60000); } });
+
 /* ---------- layers menu, legend (on phones only one of them is open at a time), bottom sheet ---------- */
 function toggleMenu(on = !document.body.classList.contains("menu-open")) {
   document.body.classList.toggle("menu-open", on);
@@ -2079,7 +2110,8 @@ function syncLegend() {
   document.querySelectorAll("#legend [data-layer]").forEach(r => r.classList.toggle("off", !document.getElementById(r.dataset.layer).checked));
   document.querySelectorAll("#legend [data-advice]").forEach(r => r.classList.toggle("off", $("#tg-advice").value !== r.dataset.advice));
 }
-$("#menu-btn").addEventListener("click", () => toggleMenu());
+$("#menu-btn").addEventListener("click", () => { toggleMenu(); if (document.body.classList.contains("menu-open")) $("#menu-close").focus(); });
+$("#menu-close").addEventListener("click", () => { toggleMenu(false); $("#menu-btn").focus(); });
 $("#legend-btn").addEventListener("click", () => toggleLegend(undefined, true));
 $("#controls").addEventListener("change", syncLegend);
 document.addEventListener("click", (e) => {       // click anywhere outside the layers popover closes it
