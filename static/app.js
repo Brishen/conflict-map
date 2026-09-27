@@ -1953,11 +1953,18 @@ function playTv(key) {
     : `https://www.youtube.com/embed/live_stream?channel=${encodeURIComponent(c.channel)}&${params}`;
   $("#tv-screen").innerHTML = `<iframe src="${esc(src)}" title="${esc(c.label)} live" allow="autoplay; encrypted-media; picture-in-picture; fullscreen" allowfullscreen referrerpolicy="strict-origin-when-cross-origin"></iframe>`;
 }
-$("#tv-btn").addEventListener("click", () => $("#tv").hidden ? openTv() : closeTv());
-$("#tv-close").addEventListener("click", () => { closeTv(); $("#tv-btn").focus(); });
+$("#tv-btn").addEventListener("click", () => { const open = $("#tv").hidden; tvPref("open", open ? "1" : "0"); open ? openTv() : closeTv(); });
+$("#tv-close").addEventListener("click", () => { tvPref("open", "0"); closeTv(); $("#tv-btn").focus(); });
 $("#tv-size").addEventListener("click", () => { const on = $("#tv").classList.toggle("large"); tvPref("large", on ? "1" : "0"); });
 $("#tv-chans").addEventListener("click", (e) => { const b = e.target.closest("button"); if (b && b.dataset.key !== TV.key) playTv(b.dataset.key); });
 new ResizeObserver(placeTv).observe($("#panel"));
+/* open from the start on desktop, until closed once; phones (it would cover the map) and good news mode
+   (the channels carry all the news) start with it shut unless it was opened there before */
+{
+  let good = false; try { good = localStorage.getItem("goodNews") === "1"; } catch (_) {}
+  const pref = tvPref("open");
+  if (pref === "1" || (pref == null && !isMobile() && !good)) openTv();
+}
 
 /* ---------- layers menu, legend (on phones only one of them is open at a time), bottom sheet ---------- */
 function toggleMenu(on = !document.body.classList.contains("menu-open")) {
