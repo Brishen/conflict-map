@@ -129,10 +129,31 @@ const map = new maplibregl.Map({
   maxPitch: 0,
   hash: "map",   // #map=zoom/lat/lon in the URL, so a view can be copied and shared
 });
+/* a first visit (no saved or shared view) opens over the visitor's own part of the world,
+   from the country of their IP address; skipped once they have moved the map themselves */
+if (!savedView && !sharedView && !/^\/conflict\//.test(location.pathname)) {
+  let moved = false;
+  map.on("movestart", (e) => { if (e.originalEvent) moved = true; });
+  fetch("/api/where").then(r => r.json()).then(w => {
+    if (!moved && Number.isFinite(w.lat) && Number.isFinite(w.lon))
+      map.jumpTo({ center: [w.lon, Math.max(-45, Math.min(60, w.lat))] });
+  }).catch(() => {});
+}
 function setHashParam(k, v) {
   const q = new URLSearchParams(location.hash.slice(1));
   if (v) q.set(k, v); else q.delete(k);
-  history.replaceState(null, "", "#" + q.toString().replace(/%2F/g, "/"));
+  history.replaceState(null, "", location.pathname + "#" + q.toString().replace(/%2F/g, "/"));
+}
+/* each conflict has its own page (/conflict/<id>) and the about text is /about: keep the path and the
+   tab title in step with what the panel shows, so the address bar is a link that can be shared */
+const pathConflict = (location.pathname.match(/^\/conflict\/([a-z0-9-]+)$/) || [])[1] || null;
+const SITE_TITLE = "Global News Map";
+function syncPath() {
+  const c = selected && STATE && STATE.conflicts.find(x => x.id === selected);
+  const about = readerOpen && $("#reader .about-page");
+  const path = about ? "/about" : c ? `/conflict/${c.id}` : "/";
+  document.title = about ? `How it works | ${SITE_TITLE}` : c ? `${c.name}: live map and latest news | ${SITE_TITLE}` : `${SITE_TITLE}: live map of wars and conflicts`;
+  if (location.pathname !== path) history.replaceState(null, "", path + location.hash);
 }
 {
   let t = null;
@@ -587,9 +608,11 @@ map.on("load", async () => {
   startHeadlines();
   await loadAdvice(); setInterval(loadAdvice, 3600000);
   loadTerritory(); setInterval(loadTerritory, 3600000);   // before a shared #country= view renders its advice box
-  const shared = hashParam("c"), sharedCountry = hashParam("country");
-  if (shared && STATE.conflicts.find(c => c.id === shared)) select(shared, { keepView: true });
+  const shared = pathConflict || hashParam("c"), sharedCountry = hashParam("country");
+  if (shared && STATE.conflicts.find(c => c.id === shared)) select(shared, { keepView: sharedView });
   else if (sharedCountry && conflictsFor(sharedCountry).length) selectCountry(sharedCountry);
+  else if (location.pathname === "/about") openAbout();
+  else syncPath();
   setInterval(load, 60000);
   // off by default: start the aircraft layers hidden until the toggle is ticked
   for (const id of ["aircraft", "aircraft-outline", "aircraft-trails", "aircraft-trails-casing"])
@@ -862,13 +885,17 @@ function renderList({ animate = true } = {}) {
   $("#list").innerHTML = shown.map(c => {
     const combat = c.parties.filter(p => p.role === "combatant" && norm(p.country)).map(p => flag(norm(p.country)));
     const others = c.parties.filter(p => p.role !== "combatant" && norm(p.country)).map(p => flag(norm(p.country)));
-    return `<div class="card ${c.id === selected ? "selected" : ""}" data-id="${esc(c.id)}" tabindex="0" role="button">
+    return `<a class="card ${c.id === selected ? "selected" : ""}" href="/conflict/${esc(c.id)}" data-id="${esc(c.id)}">
       <div class="head"><span class="name">${esc(c.name)}</span>${sevbar(c.severity)}<span class="badge st-${esc(c.status)}">${esc(STATUS_LABEL[c.status] || c.status)}</span></div>
       <div class="region">${esc(c.region || "")} · updated ${ago(c.updated)}${nStrikes(c.id) ? ` · ${nStrikes(c.id)} attack${nStrikes(c.id) === 1 ? "" : "s"} / 7d` : ""}<span class="viewing" data-viewing="${esc(c.id)}" hidden></span></div>
       <div class="flags">${[...new Set(combat)].join(" ")}<span style="opacity:.5"> ${[...new Set(others)].join(" ")}</span>${(c.outlets || []).length < 2 ? `<span class="ob limited" title="${(c.outlets || []).length ? "Only " + esc(c.outlets[0]) + " has" : "None of the current outlets have"} reported on this recently">limited reporting</span>` : ""}</div>
-    </div>`;
+    </a>`;
   }).join("") || `<div class="empty">No conflicts match these filters.<br><br><button id="clear-filters">Clear filters</button></div>`;
-  document.querySelectorAll(".card").forEach(el => el.addEventListener("click", () => select(el.dataset.id)));
+  // real links, so a conflict can be opened in a new tab; a plain click stays on the map
+  document.querySelectorAll("#list .card").forEach(el => el.addEventListener("click", (e) => {
+    if (e.ctrlKey || e.metaKey || e.shiftKey || e.button) return;
+    e.preventDefault(); select(el.dataset.id);
+  }));
   updateViewing();
   $("#clear-filters")?.addEventListener("click", () => {
     LIST.q = ""; LIST.status = ""; $("#q").value = ""; $("#region").value = ""; applyListFilter(); $("#q").focus();
@@ -964,11 +991,12 @@ function select(id, opts = {}) {
   selected = id; selectedCountry = null; backCountry = (id && opts.fromCountry) || null;
   if (id) stopSpin();
   const c = STATE.conflicts.find(x => x.id === id);
-  setHashParam("c", c ? c.id : null); setHashParam("country", null);
+  setHashParam("c", null); setHashParam("country", null);
   if (c && isMobile() && $("#panel").dataset.sheet === "min") setSheet("peek");
   if (c && c.epicenter && !opts.keepView) map.flyTo({ center: [c.epicenter.lon, c.epicenter.lat], zoom: Math.max(map.getZoom(), 3.2), speed: 0.55, curve: 1.3, essential: true, padding: sheetPadding() });
   renderMarkers(); renderArcs(); applyInvolvement(); renderStrikes();
   if (c) renderDetail(); else renderList();
+  syncPath();
   if (id !== prev) ping();
   // keyboard users land on the new view: the back button, or the card they came from
   if (kbd) (c ? $("#detail .back") : prev && document.querySelector(`.card[data-id="${CSS.escape(prev)}"]`))?.focus({ preventScroll: !c });
@@ -1091,7 +1119,7 @@ function openAbout() {
   const outlets = Object.entries((STATE && STATE.meta.outlets) || {});
   r.innerHTML = `<button class="back">← back</button>
     <h2>How this works</h2>
-    <div class="about">
+    <div class="about about-page">
       <p>Global News Map reads a small set of established news outlets every 30 minutes. An AI model running on our own machine turns those reports into the conflicts, parties, developments and attacks you see here. It is a news digest, not an intelligence product. Don't rely on it for safety decisions.</p>
       <h3>Sources</h3>
       <p>Only outlets with strong editorial standards and a public corrections record, whose articles we can read in full:</p>
@@ -1111,10 +1139,13 @@ function openAbout() {
       <p>News heat, incidents and local news come from GDELT, which places news on the map by machine: useful for spotting activity, often wrong in the detail. Military aircraft and ships are public transponder data, shown at least 20 minutes late, and only for those that broadcast.</p>
       <h3>Occupied territory and satellite imagery</h3>
       <p>The hatched red area in Ukraine is the territory <a href="https://deepstatemap.live/en" target="_blank" rel="noopener">DeepStateMap.Live</a> shows as Russian-occupied, fetched once a day; grey is its "unknown status". DeepStateMap is a Ukrainian volunteer project and holds back Ukrainian gains for a while for security reasons. The satellite view is <a href="https://s2maps.eu" target="_blank" rel="noopener">Sentinel-2 cloudless</a> by EOX (contains modified Copernicus Sentinel data 2016 &amp; 2017), a cloud-free mosaic from 2016, not live imagery.</p>
+      <h3>Where the map opens</h3>
+      <p>On a first visit the globe turns to your country, looked up from your IP address in a copy of <a href="https://db-ip.com" target="_blank" rel="noopener">DB-IP</a>'s free database on our own server. The address isn't sent anywhere else or kept.</p>
       <h3>Found a mistake?</h3>
       <p>Use <b>⚑ Report a problem</b> on the item. Reports go straight to the maintainer. You can also join the <a href="https://discord.gg/f2esHm5fr" target="_blank" rel="noopener">Discord</a>.</p>
     </div>`;
   r.querySelector(".back").addEventListener("click", closeReader);
+  syncPath();
 }
 document.addEventListener("click", (e) => { if (e.target.closest("[data-about]")) { e.preventDefault(); openAbout(); } });
 
@@ -1152,6 +1183,7 @@ function selectCountry(iso) {
   if (isMobile() && $("#panel").dataset.sheet === "min") setSheet("peek");
   renderMarkers(); renderArcs(); applyInvolvement(); renderStrikes();
   renderCountry();
+  syncPath();
   if (kbd) $("#detail .back")?.focus({ preventScroll: true });
 }
 function renderCountry() {
@@ -1322,6 +1354,7 @@ function closeReader() {
   $("#panel").scrollTop = 0;
   if (selected && STATE.conflicts.find(c => c.id === selected)) renderDetail();
   else if (selectedCountry) renderCountry(); else renderList();
+  syncPath();
   if (kbd) ($("#detail:not([hidden]) .back") || $("#q"))?.focus({ preventScroll: true });
 }
 

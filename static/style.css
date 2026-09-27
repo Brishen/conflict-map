@@ -30,7 +30,7 @@ body { display: flex; flex-direction: column; overflow: hidden; }
 
 #top { display: flex; align-items: center; gap: 16px; padding: 10px 16px; border-bottom: 1px solid var(--border); background: var(--surface); position: relative; z-index: 20; }
 .brand { display: flex; align-items: center; gap: 10px; }
-.brand h1 { font-size: 16px; margin: 0; font-weight: 600; letter-spacing: .02em; }
+.brand .site { font-size: 16px; margin: 0; font-weight: 600; letter-spacing: .02em; color: inherit; text-decoration: none; }
 .brand .sub { color: var(--muted); font-size: 12px; }
 .brand .gh { display: inline-flex; align-items: center; gap: 5px; margin-left: 6px; padding: 3px 8px; border: 1px solid var(--border);
   border-radius: 999px; color: var(--ink-2); font-size: 12px; text-decoration: none; transition: color .15s, border-color .15s; }
@@ -106,6 +106,18 @@ body.resizing #map { pointer-events: none; }
 
 /* list */
 .card { padding: 12px 14px; border-bottom: 1px solid var(--border); cursor: pointer; }
+a.card { display: block; color: inherit; text-decoration: none; }
+/* server-rendered text, shown until the app has loaded (and what search engines read) */
+.ssr { padding: 12px 14px; font-size: 13px; line-height: 1.5; }
+.ssr .card { margin: 0 -14px; }
+.ssr-h { font-size: 12px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; margin: 0 0 6px; }
+.ssr-title { font-size: 18px; margin: 6px 0 4px; }
+.ssr h2:not(.ssr-h) { font-size: 14px; margin: 16px 0 6px; }
+.ssr ul { padding-left: 18px; margin: 0; }
+.ssr li { margin: 3px 0; }
+.ssr-sum { color: var(--ink-2); font-size: 12.5px; margin: 4px 0 0; }
+.ssr-src a, .ssr-crumb a, .ssr-foot a, .ssr-others a { color: var(--muted); }
+.ssr-foot { color: var(--muted); font-size: 12px; margin-top: 14px; }
 .card:hover, .card.selected { background: var(--surface-2); }
 .card .head { display: flex; align-items: center; gap: 8px; }
 .card .name { font-weight: 600; flex: 1; }

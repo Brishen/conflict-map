@@ -5,6 +5,8 @@ ROOT = Path(__file__).resolve().parent.parent
 DATA_DIR = ROOT / "data"
 STATIC_DIR = ROOT / "static"
 DB_PATH = DATA_DIR / "conflict.db"
+# public address, for canonical links, the sitemap and link previews
+SITE_URL = os.environ.get("SITE_URL", "https://globalnewsmap.org").rstrip("/")
 
 LLM_BASE = os.environ.get("LLM_BASE", "http://127.0.0.1:8080/v1")
 LLM_MODEL = os.environ.get("LLM_MODEL", "gpt-oss-120b")

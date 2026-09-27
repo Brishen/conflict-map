@@ -16,7 +16,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 
-from . import aircraft, countries, cyber, ships, gdelt, goodnews, headlines, livetv, pipeline, reader, weather
+from . import aircraft, countries, cyber, ships, gdelt, goodnews, headlines, ipgeo, livetv, pipeline, reader, seo, weather
 from .config import OUTLETS, outlet_of, AIRCRAFT_ENABLED, DATA_DIR, DISCORD_REPORTS_WEBHOOK, GDELT_WINDOW_HOURS, REFRESH_MINUTES, SERVE_ONLY, STATIC_DIR
 from .db import all_conflicts, db, get_state, store_report
 
@@ -59,6 +59,7 @@ async def _start():
     if AIRCRAFT_ENABLED:
         threading.Thread(target=aircraft.run_forever, name="aircraft", daemon=True).start()
     threading.Thread(target=ships.run_forever, name="ships", daemon=True).start()
+    threading.Thread(target=ipgeo.run_forever, name="ipgeo", daemon=True).start()
     if SERVE_ONLY:
         log.info("SERVE_ONLY: viewer mode, no pipeline")
         return
@@ -218,6 +219,12 @@ async def article(request: Request, url: str):
             _article_hits.pop(k, None)
     async with _article_sem:
         return await asyncio.to_thread(reader.fetch, url)
+
+
+@app.get("/api/where")
+def where(request: Request):
+    """The visitor's country, for where the globe first opens. Nothing is logged or kept."""
+    return JSONResponse(ipgeo.locate(_client_ip(request)) or {}, headers={"Cache-Control": "private, max-age=3600"})
 
 
 @app.get("/api/aircraft")
@@ -424,15 +431,55 @@ async def reports_update(rid: str, request: Request):
     return {"ok": True}
 
 
-@app.get("/")
-def index():
+def _shell() -> str:
     # stamp the stylesheet / script URLs with their modification time, so a browser never pairs
     # a new page with a heuristically cached old app.js or style.css after an update
     html = (STATIC_DIR / "index.html").read_text()
     for name in ("style.css", "app.js"):
         v = int((STATIC_DIR / name).stat().st_mtime)
         html = html.replace(f'"/static/{name}"', f'"/static/{name}?v={v}"')
-    return Response(html, media_type="text/html", headers={"Cache-Control": "no-cache"})
+    return html
+
+
+def _page(path: str) -> Response:
+    status, html = seo.render(_shell(), path)
+    return Response(html, status_code=status, media_type="text/html", headers={"Cache-Control": "no-cache"})
+
+
+@app.get("/")
+def index():
+    return _page("/")
+
+
+@app.get("/about")
+def about_page():
+    return _page("/about")
+
+
+@app.get("/conflict/{cid}")
+def conflict_page(cid: str):
+    return _page(f"/conflict/{cid}" if re.fullmatch(r"[a-z0-9-]{1,64}", cid) else "/conflict/-")
+
+
+@app.get("/robots.txt")
+def robots_txt():
+    return Response(seo.robots(), media_type="text/plain", headers={"Cache-Control": "max-age=3600"})
+
+
+@app.get("/sitemap.xml")
+def sitemap_xml():
+    return Response(seo.sitemap(), media_type="application/xml", headers={"Cache-Control": "max-age=600"})
+
+
+@app.get("/favicon.ico")
+def favicon():
+    return FileResponse(STATIC_DIR / "icons" / "favicon.ico", headers={"Cache-Control": "max-age=604800"})
+
+
+@app.get("/site.webmanifest")
+def manifest():
+    return FileResponse(STATIC_DIR / "icons" / "site.webmanifest", media_type="application/manifest+json",
+                        headers={"Cache-Control": "max-age=86400"})
 
 
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")

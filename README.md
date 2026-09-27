@@ -223,6 +223,22 @@ No keys needed.
   the free tier allows 10,000 locations a day and this uses about 5,000.
 - **Weather headlines**: weather stories from the general feeds.
 
+## Pages, search engines and where the map opens
+
+The map is one app, but each conflict also has its own address, `/conflict/<id>`, and the
+methodology is at `/about` (`app/seo.py`). The server fills the app shell with that page's title,
+description, canonical link, Open Graph / Twitter preview (`static/og.jpg`) and JSON-LD, and writes
+the conflict list or the conflict's summary, parties and latest developments into the panel as
+plain HTML, so search engines and visitors without JavaScript get the text; the app replaces it once
+loaded and keeps the address bar on the page it shows. `/sitemap.xml` lists every conflict page with
+its last update; `/robots.txt` points to it. `SITE_URL` sets the public address (default
+`https://globalnewsmap.org`).
+
+On a first visit (no saved or shared view) the globe opens over the visitor's country:
+`/api/where` looks the IP address up in DB-IP's free country database (CC BY 4.0), which
+`app/ipgeo.py` downloads to `data/dbip-country-lite.mmdb` and refreshes monthly. The address is not
+sent anywhere or stored.
+
 ## Contributing
 
 Issues and pull requests are welcome: https://github.com/Comm4nd0/conflict-map
