@@ -115,10 +115,14 @@ const map = new maplibregl.Map({
     },
     sources: {
       relief: { type: "raster", tiles: ["/static/tiles/{z}/{x}/{y}.jpg"], tileSize: 512, minzoom: 0, maxzoom: 4 },
+      // Sentinel-2 cloudless 2016 by EOX, CC BY 4.0 (the later years are non-commercial only); only fetched while switched on
+      satellite: { type: "raster", tiles: ["https://tiles.maps.eox.at/wmts/1.0.0/s2cloudless_3857/default/g/{z}/{y}/{x}.jpg"], tileSize: 256, minzoom: 0, maxzoom: 13 },
     },
     layers: [
       { id: "bg", type: "background", paint: { "background-color": OCEAN, "background-color-transition": { duration: 450 } } },
       { id: "relief", type: "raster", source: "relief", paint: { "raster-opacity": 1, "raster-fade-duration": 150 } },
+      { id: "satellite", type: "raster", source: "satellite", layout: { visibility: "none" },
+        paint: { "raster-brightness-max": 0.82, "raster-fade-duration": 150 } },   // a little darker so markers and labels stay readable
     ],
   },
   center: savedView ? [savedView.lon, savedView.lat] : [25, 22], zoom: savedView ? savedView.zoom : isMobile() ? fitGlobeZoom() : 2.25, minZoom: 0.8, maxZoom: 9, attributionControl: false, preserveDrawingBuffer: true,
@@ -189,6 +193,17 @@ map.on("load", async () => {
     id: "country-line", type: "line", source: "countries",
     paint: { "line-color": "rgba(210,225,255,0.22)", "line-width": ["interpolate", ["linear"], ["zoom"], 1, 0.5, 6, 1.1] },
   });
+  // occupied territory (DeepStateMap): red fill with a diagonal hatch; grey dashed = unknown status
+  map.addImage("hatch-occupied", hatchImage("rgba(255,110,110,0.95)"), { pixelRatio: 2 });
+  map.addSource("territory", { type: "geojson", data: { type: "FeatureCollection", features: [] } });
+  const occ = ["==", ["get", "kind"], "occupied"], unk = ["==", ["get", "kind"], "contested"];
+  map.addLayer({ id: "territory-fill", type: "fill", source: "territory", filter: occ, paint: { "fill-color": "#d03b3b", "fill-opacity": 0.22 } });
+  map.addLayer({ id: "territory-hatch", type: "fill", source: "territory", filter: occ, paint: { "fill-pattern": "hatch-occupied", "fill-opacity": 0.75 } });
+  map.addLayer({ id: "territory-contested", type: "fill", source: "territory", filter: unk, paint: { "fill-color": "#bcaaa4", "fill-opacity": 0.25 } });
+  map.addLayer({ id: "territory-line", type: "line", source: "territory", filter: occ,
+    paint: { "line-color": "#ff6b6b", "line-width": ["interpolate", ["linear"], ["zoom"], 3, 0.8, 8, 1.8] } });
+  map.addLayer({ id: "territory-contested-line", type: "line", source: "territory", filter: unk,
+    paint: { "line-color": "#bcaaa4", "line-width": 1, "line-dasharray": [2, 2] } });
   // day/night: three nested night polygons (sun below 0°, -6°, -12°) give a soft twilight edge
   map.addSource("night", { type: "geojson", data: { type: "FeatureCollection", features: [] } });
   map.addLayer({
@@ -531,7 +546,7 @@ map.on("load", async () => {
       h ? `<br>${h.events} conflict events · ${h.mentions} mentions (${STATE.gdelt.hours}h)` : "<br>no GDELT conflict events") +
       (inv.length ? `<br>involved in: ${esc(inv.join(", "))}` : "") +
       (inv.length > 1 ? `<br><span style="opacity:.6">click to see all ${inv.length} and who is on which side</span>` : "") +
-      (GOOD.on ? "" : adviceTip(iso));
+      (GOOD.on ? "" : adviceTip(iso)) + territoryTip(e.point);
     tip.hidden = false; tip.style.left = (e.point.x + 14) + "px"; tip.style.top = (e.point.y + 14) + "px";
   });
   map.on("mouseleave", "country-fill", () => { tip.hidden = true; });
@@ -557,7 +572,8 @@ map.on("load", async () => {
   let goodPref = null; try { goodPref = localStorage.getItem("goodNews"); } catch (_) {}
   if (hashParam("good") === "1" || (hashParam("good") !== "0" && goodPref === "1")) setGood(true);
   await load();
-  await loadAdvice(); setInterval(loadAdvice, 3600000);   // before a shared #country= view renders its advice box
+  await loadAdvice(); setInterval(loadAdvice, 3600000);
+  loadTerritory(); setInterval(loadTerritory, 3600000);   // before a shared #country= view renders its advice box
   const shared = hashParam("c"), sharedCountry = hashParam("country");
   if (shared && STATE.conflicts.find(c => c.id === shared)) select(shared, { keepView: true });
   else if (sharedCountry && conflictsFor(sharedCountry).length) selectCountry(sharedCountry);
@@ -887,7 +903,7 @@ function renderDetail() {
       ${(c.outlets || []).length < 2 ? `<span class="ob limited" title="Fewer than two current outlets have reported on this recently">limited reporting</span>` : ""}
       <span class="viewing in-detail" data-viewing="${esc(c.id)}" hidden></span>${reportLink("conflict", c.id, c.name)}</div>
     <div class="ai-note">Summarised by AI from the news sources below; <button class="linkish" data-about>how this works</button>.</div>
-    ${GOOD.on ? "" : statTiles(c) + `<p class="summary">${esc(c.summary)}</p>` + figureList(c)}
+    ${GOOD.on ? "" : statTiles(c) + territoryBlock(c) + `<p class="summary">${esc(c.summary)}</p>` + figureList(c)}
     <h3>Who is involved</h3>
     ${sideBlock("A", "Side A")}${sideBlock("B", "Side B")}${sideBlock("other", "Mediators / others")}
     ${GOOD.on ? "" : `<h3>Consequences</h3>
@@ -1078,6 +1094,8 @@ function openAbout() {
       </ul>
       <h3>Automatic layers</h3>
       <p>News heat, incidents and local news come from GDELT, which places news on the map by machine: useful for spotting activity, often wrong in the detail. Military aircraft and ships are public transponder data, shown at least 20 minutes late, and only for those that broadcast.</p>
+      <h3>Occupied territory and satellite imagery</h3>
+      <p>The hatched red area in Ukraine is the territory <a href="https://deepstatemap.live/en" target="_blank" rel="noopener">DeepStateMap.Live</a> shows as Russian-occupied, fetched once a day; grey is its "unknown status". DeepStateMap is a Ukrainian volunteer project and holds back Ukrainian gains for a while for security reasons. The satellite view is <a href="https://s2maps.eu" target="_blank" rel="noopener">Sentinel-2 cloudless</a> by EOX (contains modified Copernicus Sentinel data 2016 &amp; 2017), a cloud-free mosaic from 2016, not live imagery.</p>
       <h3>Found a mistake?</h3>
       <p>Use <b>⚑ Report a problem</b> on the item. Reports go straight to the maintainer. You can also join the <a href="https://discord.gg/f2esHm5fr" target="_blank" rel="noopener">Discord</a>.</p>
     </div>`;
@@ -1147,7 +1165,7 @@ function renderCountry() {
 
 /* ---------- remember settings across reloads (per browser) ---------- */
 const SETTINGS_KEY = "conflictMapSettings";
-const SETTING_IDS = ["tg-globe", "tg-rotate", "tg-night", "tg-heat", "tg-arcs", "tg-gdelt-arcs", "tg-strikes",
+const SETTING_IDS = ["tg-globe", "tg-rotate", "tg-night", "tg-sat", "tg-territory", "tg-heat", "tg-arcs", "tg-gdelt-arcs", "tg-strikes",
                      "tg-incidents", "tg-aircraft", "tg-ships", "tg-local", "tg-advice", "window", "sort"];
 const SETTINGS_VERSION = 2;     // 2: spin off by default; a saved "spin on" from before was just the old default
 function saveSettings() {
@@ -1533,9 +1551,79 @@ $("#tg-local").addEventListener("change", (e) => {
   loadLocalNews();
 });
 
+/* ---------- occupied territory (DeepStateMap.Live, fetched by the server once a day) ---------- */
+let TERRITORY = null;
+const TERRITORY_LAYERS = ["territory-fill", "territory-hatch", "territory-contested", "territory-line", "territory-contested-line"];
+const UKRAINE_KM2 = 603550;
+function hatchImage(color) {
+  const n = 16, c = document.createElement("canvas"); c.width = c.height = n;
+  const g = c.getContext("2d"); g.strokeStyle = color; g.lineWidth = 2.2; g.beginPath();
+  for (const o of [-n, 0, n]) { g.moveTo(o, n); g.lineTo(o + n, 0); }      // seamless diagonal lines
+  g.stroke();
+  return g.getImageData(0, 0, n, n);
+}
+async function loadTerritory() {
+  try {
+    const t = await (await fetch("/api/territory")).json();
+    if (!t.geojson) return;
+    TERRITORY = t;
+    map.getSource("territory").setData(t.geojson);
+    $("#terr-date").textContent = t.as_of ? `as of ${t.as_of}` : "";
+    syncCredits();
+    if (selected && !readerOpen) renderDetail();
+  } catch (_) {}
+}
+function territoryChange(t) {
+  const h = t.history || [];
+  if (h.length < 2) return null;
+  const a = h[h.length - 2], b = h[h.length - 1];
+  return { km2: b.occupied_km2 - a.occupied_km2, since: a.date };
+}
+function territoryBlock(c) {
+  if (!TERRITORY || !$("#tg-territory").checked) return "";
+  const isos = c.parties.filter(p => p.role === "combatant").map(p => norm(p.country));
+  if (!isos.includes("RUS") || !isos.includes("UKR")) return "";
+  const t = TERRITORY, ch = territoryChange(t);
+  const pct = (100 * t.occupied_km2 / UKRAINE_KM2).toFixed(1);
+  const change = !ch ? `<span class="muted">Daily change shows from the next update.</span>`
+    : ch.km2 === 0 ? `No change since ${esc(ch.since)}.`
+    : `<b class="${ch.km2 > 0 ? "up" : "down"}">${ch.km2 > 0 ? "+" : "−"}${fmtNum(Math.abs(ch.km2))} km²</b> occupied since ${esc(ch.since)}.`;
+  return `<h3>Occupied territory</h3>
+    <div class="terr-box"><div><b>${fmtNum(t.occupied_km2)} km²</b> of Ukraine held by Russia (${pct}%), incl. Crimea;
+      ${fmtNum(t.contested_km2)} km² of unknown status. ${change}</div>
+      <div class="terr-src">Hatched red on the map. Source: <a href="https://deepstatemap.live/en" target="_blank" rel="noopener">DeepStateMap.Live</a>
+      (Ukrainian volunteer OSINT project; it delays showing Ukrainian gains for security)${t.as_of ? `, as of ${esc(t.as_of)}` : ""}.</div></div>`;
+}
+function territoryTip(point) {
+  if (!TERRITORY || !map.getLayer("territory-fill")) return "";
+  const f = map.queryRenderedFeatures(point, { layers: ["territory-fill", "territory-contested"] })[0];
+  if (!f) return "";
+  return `<br><span style="opacity:.8">${f.properties.kind === "occupied" ? "Russian-occupied" : "Unknown status / contested"}` +
+    ` · DeepStateMap${TERRITORY.as_of ? ", " + esc(TERRITORY.as_of) : ""}</span>`;
+}
+/* credits for the third-party layers that are switched on (desktop; phones have them in the key) */
+function syncCredits() {
+  const parts = [];
+  if ($("#tg-sat").checked) parts.push(`Imagery: <a href="https://s2maps.eu" target="_blank" rel="noopener">Sentinel-2 cloudless</a> by EOX IT Services GmbH (contains modified Copernicus Sentinel data 2016 &amp; 2017)`);
+  if ($("#tg-territory").checked && TERRITORY) parts.push(`Occupied territory: <a href="https://deepstatemap.live/en" target="_blank" rel="noopener">DeepStateMap.Live</a>`);
+  $("#map-credit").innerHTML = parts.join(" · ");
+  $("#map-credit").hidden = !parts.length;
+}
+$("#tg-territory").addEventListener("change", e => {
+  for (const id of TERRITORY_LAYERS) if (map.getLayer(id)) map.setLayoutProperty(id, "visibility", e.target.checked ? "visible" : "none");
+  syncCredits(); if (selected && !readerOpen) renderDetail();
+});
+$("#tg-sat").addEventListener("change", e => {
+  const on = e.target.checked;
+  if (map.getLayer("satellite")) map.setLayoutProperty("satellite", "visibility", on ? "visible" : "none");
+  if (map.getLayer("relief")) map.setLayoutProperty("relief", "visibility", on ? "none" : "visible");
+  if (map.getLayer("lakes")) map.setLayoutProperty("lakes", "visibility", on ? "none" : "visible");   // the imagery has its own water
+  syncCredits();
+});
+
 /* ---------- good news mode ---------- */
 /* layers that are all bad news; switched off (and locked) while good news mode is on */
-const GOOD_HIDES = ["tg-heat", "tg-gdelt-arcs", "tg-strikes", "tg-incidents", "tg-aircraft", "tg-ships", "tg-advice"];
+const GOOD_HIDES = ["tg-heat", "tg-territory", "tg-gdelt-arcs", "tg-strikes", "tg-incidents", "tg-aircraft", "tg-ships", "tg-advice"];
 /* the state with only good news left: conflicts that report progress, with just those developments
    and the sources behind them; no attacks, casualty figures, consequences or GDELT conflict events */
 function goodView(raw) {

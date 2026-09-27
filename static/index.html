@@ -49,10 +49,12 @@
       <label class="toggle"><input type="checkbox" id="tg-globe" checked> Globe</label>
       <label class="toggle"><input type="checkbox" id="tg-rotate"> Spin</label>
       <label class="toggle" title="Live day/night from the sun's position"><input type="checkbox" id="tg-night" checked> Day/night</label>
+      <label class="toggle" title="Cloud-free satellite imagery (Sentinel-2 cloudless 2016 by EOX)"><input type="checkbox" id="tg-sat" autocomplete="off"> Satellite</label>
     </div>
     <div class="grp">
       <div class="grp-h">Data layers</div>
       <label class="toggle" title="Countries and hotspots shaded by GDELT conflict-event mentions"><input type="checkbox" id="tg-heat" checked> News heat</label>
+      <label class="toggle" title="Russian-occupied territory in Ukraine from DeepStateMap.Live, updated daily"><input type="checkbox" id="tg-territory" checked> Occupied territory</label>
       <label class="toggle" title="Dashed lines from each party's country to the conflict"><input type="checkbox" id="tg-arcs" checked> Support arcs</label>
       <label class="toggle" title="Country pairs GDELT links through conflict events"><input type="checkbox" id="tg-gdelt-arcs"> GDELT actor links</label>
       <label class="toggle" title="Located attacks extracted from the news, last 7 days"><input type="checkbox" id="tg-strikes" checked> Attacks</label>
@@ -114,6 +116,7 @@
     <div class="row bad-only"><span class="sev s5"></span><span class="sev s3"></span><span class="sev s1"></span> conflict severity</div>
     <div class="row good-only"><span class="mkk good"></span> conflict with progress towards peace (larger = more severe)</div>
     <div class="row bad-only"><span class="mkk st-escalating"></span> escalating <span class="mkk st-active"></span> active <span class="mkk st-de-escalating"></span> easing <span class="mkk st-ceasefire"></span> ceasefire <span class="mkk st-frozen"></span> frozen</div>
+    <div class="row" data-layer="tg-territory"><span class="terr-sw occ"></span> Russian-occupied <span class="terr-sw unk"></span> unknown status <span class="note">DeepStateMap.Live, <span id="terr-date"></span></span></div>
     <div class="row" data-layer="tg-heat"><span class="ramp"></span> GDELT conflict-event mentions</div>
     <div class="row good-only" data-layer="tg-arcs"><span class="line other"></span> mediator</div>
     <div class="row bad-only" data-layer="tg-arcs"><span class="line a"></span> side A <span class="line b"></span> side B <span class="line other"></span> mediator</div>
@@ -127,6 +130,7 @@
     <div class="row" data-advice="us"><b class="adv-h">US State Dept</b> <span class="adv u1"></span> 1 normal precautions <span class="adv u2"></span> 2 increased caution <span class="adv u3"></span> 3 reconsider travel <span class="adv u4"></span> 4 do not travel</div>
     <div class="row" data-layer="tg-ships"><svg viewBox="0 0 48 48" width="12" height="12" style="color:#8fd3ff;vertical-align:-1px" aria-hidden="true"><path fill="currentColor" d="M24 3l7 11v27l-7 4-7-4V14z"/></svg> naval vessel (AIS)</div>
     <div class="row note" data-layer="tg-aircraft" id="aircraft-note">aircraft: public ADS-B, shown with a delay, only those broadcasting</div>
+    <div class="row note" data-layer="tg-sat"><span>satellite: <a href="https://s2maps.eu" target="_blank" rel="noopener">Sentinel-2 cloudless</a> by EOX IT Services GmbH (contains modified Copernicus Sentinel data 2016 &amp; 2017)</span></div>
     <div class="row note" data-layer="tg-strikes">attack icons sit on the city hit; faded icon in a ring = only the country is known</div>
   </div>
   <section id="tv" hidden aria-label="Live TV news">
@@ -140,6 +144,7 @@
     <div class="tv-screen" id="tv-screen"></div>
     <div class="tv-foot"><span>Broadcasters' YouTube streams · starts muted</span><a id="tv-yt" href="#" target="_blank" rel="noopener">Open on YouTube ↗</a></div>
   </section>
+  <div id="map-credit" hidden></div>
   <div id="update-note" role="status" hidden>
     <span>A new version of the map is available.</span>
     <button id="update-reload">Refresh</button>

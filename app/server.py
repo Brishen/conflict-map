@@ -257,6 +257,15 @@ def travel_advice():
     return JSONResponse(t, headers={"Cache-Control": "max-age=600"})
 
 
+@app.get("/api/territory")
+def territory_view():
+    with db() as con:
+        t = get_state(con, "territory")
+    if not t:
+        return JSONResponse({"geojson": None}, headers={"Cache-Control": "max-age=300"})
+    return JSONResponse(t, headers={"Cache-Control": "max-age=1800"})
+
+
 @app.get("/api/live-tv")
 async def live_tv():
     data = await asyncio.to_thread(livetv.channels)

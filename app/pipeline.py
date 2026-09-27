@@ -5,7 +5,7 @@ import sqlite3
 import subprocess
 import time
 
-from . import advisories, cleanup, dedupe, extract, feeds, gdelt
+from . import advisories, cleanup, dedupe, extract, feeds, gdelt, territory
 from . import stats as figures
 from .config import DATA_DIR, DB_PATH, PUSH_TARGET
 from .db import db, set_state, store_report
@@ -26,6 +26,11 @@ def refresh(skip_llm: bool = False, gdelt_files: int | None = None):
     except Exception as e:  # noqa: BLE001
         log.exception("feeds failed")
         stats["feeds_error"] = str(e)
+    try:
+        stats["territory"] = territory.refresh()          # once a day, not every refresh
+    except Exception as e:  # noqa: BLE001  (the last good copy stays)
+        log.exception("territory failed")
+        stats["territory_error"] = str(e)
     if not skip_llm:
         try:
             stats["conflicts_updated"] = extract.run_all()

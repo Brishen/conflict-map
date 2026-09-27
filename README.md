@@ -111,6 +111,18 @@ reported them, the period covered and a "party claim" tag when a warring side is
 source. `app/stats.py` reads the full text of recent articles; a figure is kept only if
 its number and quote appear in the article. Refreshed per conflict at most every 12 h.
 
+## Occupied territory and satellite view
+
+- **Occupied territory** (`app/territory.py`): once a day the pipeline reads DeepStateMap.Live's current
+  map (`/api/history/last`) and keeps only its "Occupied" areas (incl. Crimea and the areas held since 2014)
+  and its grey "unknown status" zones, with the area of each. The total occupied area is kept per update
+  date (`state.territory.history`) so the Russia–Ukraine panel can show the change. Served at
+  `/api/territory`, drawn hatched red, credited on the map. DeepStateMap publishes no licence; it is
+  credited and linked, and would come down if they object. ISW's data needs written permission and is not used.
+- **Satellite** (View → Satellite): Sentinel-2 cloudless 2016 by EOX (CC BY 4.0), streamed from
+  tiles.maps.eox.at only while switched on, credited on the map. The later yearly mosaics are
+  non-commercial only (CC BY-NC-SA).
+
 ## Good news mode
 
 The "Good news" button (in Layers on phones) hides everything that is bad news: attacks,
