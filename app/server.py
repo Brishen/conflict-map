@@ -476,6 +476,15 @@ def favicon():
     return FileResponse(STATIC_DIR / "icons" / "favicon.ico", headers={"Cache-Control": "max-age=604800"})
 
 
+@app.get("/{name}.html")
+def site_verification(name: str):
+    # search engines' ownership checks (Google Search Console etc.) want their file at the root
+    f = STATIC_DIR / "verify" / f"{name}.html"
+    if not re.fullmatch(r"[A-Za-z0-9_-]{1,80}", name) or not f.is_file():
+        return JSONResponse({"detail": "Not Found"}, status_code=404)
+    return FileResponse(f, media_type="text/html")
+
+
 @app.get("/site.webmanifest")
 def manifest():
     return FileResponse(STATIC_DIR / "icons" / "site.webmanifest", media_type="application/manifest+json",
