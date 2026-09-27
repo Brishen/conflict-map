@@ -514,6 +514,26 @@ body.cyber-mode .controls label:has(:disabled) { opacity: .4; }
 .cy-n { color: var(--ink-2); margin-left: 4px; }
 @media (max-width: 760px) { #cyber-btn { display: none; } }   /* phones: the switch in Layers */
 
+/* ---------- weather mode ---------- */
+.drop-ico { width: 9px; height: 9px; flex: none; background: #4da3ff; border-radius: 50% 0 50% 50%; transform: rotate(-45deg); }
+#weather-btn { display: inline-flex; align-items: center; gap: 7px; }
+#weather-btn[aria-pressed="true"] { border-color: #4da3ff; background: rgba(77,163,255,.14); color: var(--ink); }
+body:not(.weather-mode) #legend .weather-only, body.weather-mode #legend .row:not(.weather-only) { display: none; }
+body.weather-mode .controls label:has(:disabled) { opacity: .4; }
+#legend .ramp.wx-rain { background: linear-gradient(90deg, #88ddee, #0099cc, #0077aa, #005588, #ffee00, #ff4400, #c10000); }
+#legend .ramp.wx-temp { background: linear-gradient(90deg, #8f7bff, #5b8cff, #6fd3ff, #7fe0a0, #ffe066, #ff9a3d, #ff4d4d, #c2185b); }
+.mkk.wx-front { width: 10px; height: 10px; border-radius: 50%; background: #ffe066; border: 2px solid #fff; display: inline-block; }
+.mkk.wx-k { width: 10px; height: 10px; border-radius: 50%; border: 2px solid #5fd38d; display: inline-block; }
+.wx-intro { border-color: rgba(77,163,255,.35); background: rgba(77,163,255,.07); }
+#list .wx-front .head, #list .wx-hz .head { align-items: baseline; gap: 8px; }
+#list .wx-front .date, #list .wx-hz .date { color: var(--muted); font-size: 12px; margin-left: auto; flex: none; }
+#list .wx-front .gtext { color: var(--ink-2); font-size: 12.5px; line-height: 1.45; margin-top: 4px; }
+.wx-t { flex: none; font-weight: 600; font-variant-numeric: tabular-nums; min-width: 34px; }
+.wx-dot { flex: none; width: 10px; height: 10px; border-radius: 50%; border: 2px solid; align-self: center; }
+.wx-lab { color: var(--muted); width: 64px; flex: none; }
+.cy-meta a { color: var(--ink-2); }
+@media (max-width: 760px) { #weather-btn { display: none; } }   /* phones: the switch in Layers */
+
 /* ---------- "new version available" notice ---------- */
 #update-note { position: absolute; top: 12px; left: 50%; transform: translateX(-50%); z-index: 20; display: flex; align-items: center; gap: 10px;
                padding: 8px 8px 8px 14px; background: var(--surface); border: 1px solid var(--border); border-radius: 8px;

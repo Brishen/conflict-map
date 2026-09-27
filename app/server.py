@@ -16,7 +16,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 
-from . import aircraft, countries, cyber, ships, gdelt, goodnews, headlines, livetv, pipeline, reader
+from . import aircraft, countries, cyber, ships, gdelt, goodnews, headlines, livetv, pipeline, reader, weather
 from .config import OUTLETS, outlet_of, AIRCRAFT_ENABLED, DATA_DIR, DISCORD_REPORTS_WEBHOOK, GDELT_WINDOW_HOURS, REFRESH_MINUTES, SERVE_ONLY, STATIC_DIR
 from .db import all_conflicts, db, get_state, store_report
 
@@ -268,14 +268,20 @@ def territory_view():
 
 
 @app.get("/api/headlines")
-async def top_headlines(good: bool = False, cyber: bool = False):
-    items = await asyncio.to_thread(headlines.top, 10, good, cyber)
+async def top_headlines(good: bool = False, cyber: bool = False, weather: bool = False):
+    items = await asyncio.to_thread(headlines.top, 10, good, cyber, weather)
     return JSONResponse({"items": items}, headers={"Cache-Control": "max-age=120"})
 
 
 @app.get("/api/cyber")
 async def cyber_view():
     data = await asyncio.to_thread(cyber.view)
+    return JSONResponse(data, headers={"Cache-Control": "max-age=120"})
+
+
+@app.get("/api/weather")
+async def weather_view():
+    data = await asyncio.to_thread(weather.view)
     return JSONResponse(data, headers={"Cache-Control": "max-age=120"})
 
 

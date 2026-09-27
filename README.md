@@ -209,6 +209,20 @@ The "Cyber" button (in Layers on phones) swaps the physical conflicts for the vi
   them, and each incident, attribution and state link is checked against the article like the conflict
   claims. The cyber feeds never reach the conflict extraction.
 
+## Weather mode
+
+The "Weather" button (in Layers on phones) swaps the conflicts for the weather (`app/weather.py`, `/api/weather`).
+No keys needed.
+
+- **Rain**: RainViewer's radar mosaic, with a satellite estimate where there is no radar, loaded by the page
+  straight from RainViewer; the last two hours play as a loop.
+- **Storms, floods, wildfires**: GDACS (UN / European Commission) current events with their alert level;
+  tropical cyclones with their track and forecast cone.
+- **Conditions**: Open-Meteo's current weather at every capital, and at each conflict's epicentre with the next
+  two days (rain, wind and cloud matter for drones, aircraft and roads). Fetched at most hourly by the pipeline:
+  the free tier allows 10,000 locations a day and this uses about 5,000.
+- **Weather headlines**: weather stories from the general feeds.
+
 ## Contributing
 
 Issues and pull requests are welcome: https://github.com/Comm4nd0/conflict-map

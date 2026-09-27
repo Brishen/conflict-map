@@ -279,6 +279,7 @@ map.on("load", async () => {
   });
 
   addCyberLayers();
+  addWeatherLayers();
 
   // ---- labels: capitals, cities, country names
   map.addLayer({
@@ -543,8 +544,8 @@ map.on("load", async () => {
     const f = e.features[0]; const iso = f.properties.ADM0_A3;
     const h = STATE?.gdelt.heat[iso];
     const inv = STATE ? STATE.conflicts.filter(c => c.parties.some(p => norm(p.country) === iso)).map(c => c.name) : [];
-    if (CYBER.on) {
-      tip.innerHTML = `<b>${esc(f.properties.NAME_EN || f.properties.NAME)}</b>` + cyberCountryTip(iso);
+    if (CYBER.on || WEATHER.on) {
+      tip.innerHTML = `<b>${esc(f.properties.NAME_EN || f.properties.NAME)}</b>` + (CYBER.on ? cyberCountryTip(iso) : weatherCountryTip(iso));
       tip.hidden = false; tip.style.left = (e.point.x + 14) + "px"; tip.style.top = (e.point.y + 14) + "px";
       return;
     }
@@ -562,7 +563,7 @@ map.on("load", async () => {
     const iso = e.features[0].properties.ADM0_A3;
     const list = conflictsFor(iso);
     if (!list.length) {                              // no conflict here: show the official travel advice, if any
-      if (!GOOD.on && !CYBER.on && ADVICE && (ADVICE.fcdo?.[iso] || ADVICE.us?.[iso])) {
+      if (!GOOD.on && !CYBER.on && !WEATHER.on && ADVICE && (ADVICE.fcdo?.[iso] || ADVICE.us?.[iso])) {
         e.originalEvent._handled = true;
         new maplibregl.Popup({ closeButton: true, maxWidth: "320px" }).setLngLat(e.lngLat)
           .setHTML(`<b>${esc(countryName(iso))}</b>${adviceHtml(iso)}`).addTo(map);
@@ -580,6 +581,8 @@ map.on("load", async () => {
   if (hashParam("good") === "1" || (hashParam("good") !== "0" && goodPref === "1")) setGood(true);
   let cyberPref = null; try { cyberPref = localStorage.getItem("cyberMode"); } catch (_) {}
   if (!GOOD.on && (hashParam("cyber") === "1" || (hashParam("cyber") !== "0" && cyberPref === "1"))) setCyber(true);
+  let weatherPref = null; try { weatherPref = localStorage.getItem("weatherMode"); } catch (_) {}
+  if (!GOOD.on && !CYBER.on && (hashParam("weather") === "1" || (hashParam("weather") !== "0" && weatherPref === "1"))) setWeather(true);
   await load();
   startHeadlines();
   await loadAdvice(); setInterval(loadAdvice, 3600000);
@@ -635,7 +638,7 @@ function render() {
 function renderStatus() {
   const m = STATE.meta, g = STATE.gdelt;
   const parts = [`<b>Updated ${esc(ago(m.last_extract?.at))}</b>`,
-    CYBER.on ? `cyber mode` : GOOD.on ? `good news mode` : `${STATE.conflicts.length} conflicts`, `${m.sources} news outlets`];
+    CYBER.on ? `cyber mode` : WEATHER.on ? `weather mode` : GOOD.on ? `good news mode` : `${STATE.conflicts.length} conflicts`, `${m.sources} news outlets`];
   if (ONLINE) parts.unshift(`<span class="online" title="People with the map open right now (each open tab counts)"><i></i>${ONLINE} online</span>`);
   if (m.busy) parts.push(m.unprocessed ? `refreshing now, ${m.unprocessed} articles to read` : "refreshing now");
   else if (m.unprocessed && !m.serve_only) parts.push(`${m.unprocessed} articles queued`);
@@ -846,6 +849,7 @@ function renderList({ animate = true } = {}) {
   $("#detail").hidden = true; $("#list").hidden = false; if (animate) reveal($("#list"));
   $("#list").removeAttribute("aria-busy");
   if (CYBER.on) return renderCyberList();
+  if (WEATHER.on) return renderWeatherList();
   if (GOOD.on) return renderGoodList();
   if (!STATE.conflicts.length) {
     $("#list-tools").hidden = true;
@@ -1185,6 +1189,7 @@ function saveSettings() {
   for (const id of SETTING_IDS) { const el = document.getElementById(id); if (el) out[id] = el.type === "checkbox" ? el.checked : el.value; }
   if (GOOD.stash) Object.assign(out, GOOD.stash);
   if (CYBER.stash) Object.assign(out, CYBER.stash);
+  if (WEATHER.stash) Object.assign(out, WEATHER.stash);
   out.v = SETTINGS_VERSION;
   try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(out)); } catch (_) {}
 }
@@ -1655,10 +1660,11 @@ function setControl(id, v) {
   el.dispatchEvent(new Event("change"));
 }
 /* what the page shows of the full state in the current mode */
-const viewOf = (raw) => CYBER.on ? cyberView(raw) : GOOD.on ? goodView(raw) : raw;
+const viewOf = (raw) => CYBER.on || WEATHER.on ? bareView(raw) : GOOD.on ? goodView(raw) : raw;
 function setGood(on) {
   if (on === GOOD.on) return;
   if (on && CYBER.on) setCyber(false);          // one mode at a time
+  if (on && WEATHER.on) setWeather(false);
   GOOD.on = on;
   document.body.classList.toggle("good-mode", on);
   $("#good-btn").setAttribute("aria-pressed", on); $("#tg-good").checked = on;
@@ -1720,7 +1726,8 @@ const CYBER_KIND = { ransomware: "ransomware", ddos: "DDoS", breach: "data breac
 /* the dashes move along the arcs, origin to target */
 const DASH_SEQ = [[0, 4, 3], [0.5, 4, 2.5], [1, 4, 2], [1.5, 4, 1.5], [2, 4, 1], [2.5, 4, 0.5], [3, 4, 0],
                   [0, 0.5, 3, 3.5], [0, 1, 3, 3], [0, 1.5, 3, 2.5], [0, 2, 3, 2], [0, 2.5, 3, 1.5], [0, 3, 3, 1], [0, 3.5, 3, 0.5]];
-function cyberView(raw) {
+/* no conflicts, strikes or GDELT events: what cyber and weather mode draw over */
+function bareView(raw) {
   return { ...raw, conflicts: [], strikes: [], gdelt: { ...raw.gdelt, heat: {}, points: [], pairs: [], incidents: [] } };
 }
 function addCyberLayers() {
@@ -1869,6 +1876,7 @@ function cyberDash(on) {
 function setCyber(on) {
   if (on === CYBER.on) return;
   if (on && GOOD.on) setGood(false);
+  if (on && WEATHER.on) setWeather(false);
   CYBER.on = on;
   document.body.classList.toggle("cyber-mode", on);
   $("#cyber-btn").setAttribute("aria-pressed", on); $("#tg-cyber").checked = on;
@@ -1892,6 +1900,238 @@ function setCyber(on) {
 }
 $("#cyber-btn").addEventListener("click", () => setCyber(!CYBER.on));
 $("#tg-cyber").addEventListener("change", (e) => setCyber(e.target.checked));
+
+/* ---------- weather mode: the weather over the world and over the fighting ---------- */
+/* rain from RainViewer (radar plus a satellite estimate where there is no radar, last 2 h, loaded straight from
+   RainViewer), storms, floods and wildfires from GDACS, and the current weather at every capital and at each
+   conflict's epicentre from Open-Meteo (fetched hourly by the pipeline). */
+const WEATHER = { on: false, data: null, stash: null, timer: null, frames: [], frame: 0, anim: null, radarTimer: null };
+const WEATHER_HIDES = [...GOOD_HIDES, "tg-arcs", "tg-local"];
+const WEATHER_LAYERS = ["wx-cone", "wx-track", "wx-track-fc", "wx-hazard", "wx-storm-label", "wx-cap", "wx-cap-t", "wx-front", "wx-front-t"];
+const WX_ALERT = { green: "#5fd38d", orange: "#ff9a3d", red: "#ff4d4d" };
+const WX_KIND = { cyclone: "#e6e4da", flood: "#4da3ff", wildfire: "#ff7a1a", drought: "#c9a15a" };
+const WX_KIND_LABEL = { cyclone: "tropical cyclone", flood: "flood", wildfire: "wildfire", drought: "drought" };
+/* WMO weather codes, as Open-Meteo reports them */
+function wxText(code) {
+  if (code == null) return "";
+  if (code === 0) return "clear"; if (code === 1) return "mainly clear"; if (code === 2) return "partly cloudy"; if (code === 3) return "overcast";
+  if (code === 45 || code === 48) return "fog"; if (code <= 55) return "drizzle"; if (code <= 57) return "freezing drizzle";
+  if (code === 66 || code === 67) return "freezing rain"; if (code <= 65) return code === 65 ? "heavy rain" : "rain";
+  if (code <= 77) return code === 75 ? "heavy snow" : "snow"; if (code <= 82) return code === 82 ? "violent showers" : "showers";
+  return code <= 86 ? "snow showers" : "thunderstorm";   // 96/99 "with hail" is only reliable over central Europe
+}
+const TEMP_RAMP = ["interpolate", ["linear"], ["get", "t"], -25, "#8f7bff", -10, "#5b8cff", 0, "#6fd3ff", 10, "#7fe0a0", 20, "#ffe066", 28, "#ff9a3d", 36, "#ff4d4d", 45, "#c2185b"];
+const deg = (t) => t == null ? "–" : `${Math.round(t)}°`;
+function wxNow(w) {
+  const bits = [`${deg(w.t)} ${wxText(w.code)}`];
+  if (w.feels != null && Math.abs(w.feels - w.t) >= 3) bits.push(`feels ${deg(w.feels)}`);
+  if (w.gust != null) bits.push(`wind ${Math.round(w.wind)} km/h, gusts ${Math.round(w.gust)}`);
+  if (w.rain) bits.push(`${w.rain} mm rain in the last 15 min`);
+  if (w.cloud != null) bits.push(`${w.cloud}% cloud`);
+  return bits.join(" · ");
+}
+function addWeatherLayers() {
+  const empty = { type: "FeatureCollection", features: [] }, hidden = { visibility: "none" };
+  for (const id of ["wx-storms", "wx-hazards", "wx-caps", "wx-fronts"]) map.addSource(id, { type: "geojson", data: empty });
+  map.addLayer({ id: "wx-cone", type: "fill", source: "wx-storms", layout: hidden, filter: ["==", ["get", "part"], "cone"],
+    paint: { "fill-color": ["match", ["get", "alert"], "red", WX_ALERT.red, "orange", WX_ALERT.orange, WX_ALERT.green], "fill-opacity": 0.13 } });
+  const track = (id, fc) => map.addLayer({ id, type: "line", source: "wx-storms", layout: { ...hidden, "line-cap": "round" },
+    filter: ["all", ["==", ["get", "part"], "track"], ["==", ["get", "forecast"], fc]],
+    paint: { "line-color": ["match", ["get", "alert"], "red", WX_ALERT.red, "orange", WX_ALERT.orange, WX_ALERT.green],
+             "line-width": ["match", ["get", "cat"], "HU", 3, "TS", 2, 1.4], ...(fc ? { "line-dasharray": [1.5, 1.5] } : {}) } });
+  track("wx-track", false); track("wx-track-fc", true);
+  map.addLayer({ id: "wx-hazard", type: "circle", source: "wx-hazards", layout: hidden,
+    paint: { "circle-color": ["get", "color"], "circle-radius": ["case", ["==", ["get", "kind"], "cyclone"], 8, ["==", ["get", "kind"], "wildfire"], 3.5, 6],
+             "circle-stroke-color": ["get", "stroke"], "circle-stroke-width": ["case", ["==", ["get", "kind"], "wildfire"], 1, 2.5] } });
+  map.addLayer({ id: "wx-storm-label", type: "symbol", source: "wx-hazards", layout: { ...hidden, "text-field": ["get", "label"], "text-font": ["Open Sans Semibold"],
+    "text-size": 12, "text-offset": [0, 1.3], "text-anchor": "top", "text-optional": true }, filter: ["==", ["get", "kind"], "cyclone"],
+    paint: { "text-color": "#fff", "text-halo-color": "rgba(0,0,0,.75)", "text-halo-width": 1.2 } });
+  map.addLayer({ id: "wx-cap", type: "circle", source: "wx-caps", layout: hidden,
+    paint: { "circle-color": TEMP_RAMP, "circle-radius": ["interpolate", ["linear"], ["zoom"], 1, 2.5, 5, 5], "circle-stroke-color": "rgba(0,0,0,.6)", "circle-stroke-width": 1 } });
+  map.addLayer({ id: "wx-cap-t", type: "symbol", source: "wx-caps", minzoom: 1.5, layout: { ...hidden, "text-field": ["get", "label"], "text-font": ["Open Sans Semibold"],
+    "text-size": ["interpolate", ["linear"], ["zoom"], 2, 10, 6, 13], "text-offset": [0.6, 0], "text-anchor": "left", "text-optional": true },
+    paint: { "text-color": TEMP_RAMP, "text-halo-color": "rgba(0,0,0,.8)", "text-halo-width": 1.2 } });
+  map.addLayer({ id: "wx-front", type: "circle", source: "wx-fronts", layout: hidden,
+    paint: { "circle-color": TEMP_RAMP, "circle-radius": 7, "circle-stroke-color": "#fff", "circle-stroke-width": 2 } });
+  map.addLayer({ id: "wx-front-t", type: "symbol", source: "wx-fronts", minzoom: 2.5, layout: { ...hidden, "text-field": ["get", "label"], "text-font": ["Open Sans Semibold"],
+    "text-size": 12, "text-offset": [0, 1.2], "text-anchor": "top", "text-optional": true }, paint: { "text-color": "#fff", "text-halo-color": "rgba(0,0,0,.8)", "text-halo-width": 1.2 } });
+  const tip = $("#tooltip");
+  const show = (e, html) => { tip.innerHTML = html; tip.hidden = false; tip.style.left = (e.point.x + 14) + "px"; tip.style.top = (e.point.y + 14) + "px"; map.getCanvas().style.cursor = "pointer"; };
+  const hide = () => { tip.hidden = true; map.getCanvas().style.cursor = ""; };
+  map.on("mousemove", "wx-hazard", (e) => { const h = WEATHER.data?.hazards.events[e.features[0].properties.i]; if (h) show(e, wxHazardHtml(h)); });
+  map.on("mousemove", "wx-cap", (e) => { const w = WEATHER.data?.conditions.capitals[e.features[0].properties.i]; if (w) show(e, `<b>${esc(w.name)}</b>, ${esc(cname(w.iso3))}<br>${esc(wxNow(w))}`); });
+  map.on("mousemove", "wx-front", (e) => { const w = WEATHER.data?.conditions.conflicts[e.features[0].properties.i]; if (w) show(e, wxFrontHtml(w)); });
+  for (const id of ["wx-hazard", "wx-cap", "wx-front"]) map.on("mouseleave", id, hide);
+  map.on("click", "wx-hazard", (e) => { e.originalEvent._handled = true; const h = WEATHER.data?.hazards.events[e.features[0].properties.i]; if (h?.report) window.open(h.report, "_blank", "noopener"); });
+  map.on("click", "wx-front", (e) => { e.originalEvent._handled = true; });
+  map.on("click", "wx-cap", (e) => { e.originalEvent._handled = true; });
+}
+function wxHazardHtml(h) {
+  const where = h.countries.length ? h.countries.map(cyberFlag).join(", ") : esc(h.place || "at sea");
+  return `<b>${esc(h.kind === "cyclone" ? `${h.title}` : h.title || h.name)}</b><br>${esc(WX_KIND_LABEL[h.kind])} · ${where}` +
+    (h.severity && h.kind !== "flood" ? `<br>${esc(h.severity)}` : "") +
+    `<br><span style="color:${WX_ALERT[h.alert]}">GDACS ${esc(h.alert)} alert</span> <span style="opacity:.6">since ${esc((h.from || "").slice(0, 10))}</span>`;
+}
+function wxDay(d) {
+  const day = new Date(d.date + "T12:00:00Z").toLocaleDateString(undefined, { weekday: "short", timeZone: "UTC" });
+  return `${day}: ${wxText(d.code)}, ${deg(d.min)}–${deg(d.max)}${d.rain ? `, ${d.rain} mm` : ""}${d.gust != null ? `, gusts ${Math.round(d.gust)} km/h` : ""}`;
+}
+/* today (UTC) is often half gone; show the day after it and the one after that as the outlook */
+const wxOutlook = (w) => (w.days || []).filter(d => d.date > new Date().toISOString().slice(0, 10)).slice(0, 2);
+function wxFrontHtml(w) {
+  return `<b>${esc(w.name)}</b>${w.label ? `<br><span style="opacity:.7">${esc(w.label)}</span>` : ""}<br>now: ${esc(wxNow(w))}` +
+    wxOutlook(w).map(d => `<br>${esc(wxDay(d))}`).join("");
+}
+function weatherCountryTip(iso) {
+  const d = WEATHER.data; if (!d) return "";
+  const cap = d.conditions.capitals.find(c => c.iso3 === iso);
+  const hz = d.hazards.events.filter(h => h.countries.includes(iso));
+  const parts = [];
+  if (cap) parts.push(`${cap.name}: ${wxNow(cap)}`);
+  const n = (k) => hz.filter(h => h.kind === k).length;
+  for (const k of ["cyclone", "flood", "wildfire", "drought"]) if (n(k)) parts.push(`${n(k)} ${WX_KIND_LABEL[k]}${n(k) > 1 ? "s" : ""} (GDACS)`);
+  return parts.length ? "<br>" + parts.map(esc).join("<br>") : "";
+}
+async function loadWeather() {
+  try { const r = await fetch("/api/weather"); if (!r.ok) throw new Error(r.status); WEATHER.data = await r.json(); }
+  catch (_) { if (!WEATHER.data) WEATHER.data = { hazards: { events: [], storms: { type: "FeatureCollection", features: [] } }, conditions: { capitals: [], conflicts: [] } }; }
+  if (WEATHER.on) renderWeather();
+}
+function renderWeather() {
+  const d = WEATHER.data; if (!d || !map.getSource("wx-storms")) return;
+  map.getSource("wx-storms").setData(d.hazards.storms);
+  map.getSource("wx-hazards").setData({ type: "FeatureCollection", features: d.hazards.events.map((h, i) => ({ type: "Feature",
+    geometry: { type: "Point", coordinates: [h.lon, h.lat] },
+    properties: { i, kind: h.kind, color: WX_KIND[h.kind], stroke: WX_ALERT[h.alert] || WX_ALERT.green,
+                  label: h.kind === "cyclone" ? (h.name || "").replace(/-\d+$/, "") : "" } })) });
+  map.getSource("wx-caps").setData({ type: "FeatureCollection", features: d.conditions.capitals.map((w, i) => w.t == null ? null : ({ type: "Feature",
+    geometry: { type: "Point", coordinates: [w.lon, w.lat] }, properties: { i, t: w.t, label: deg(w.t) } })).filter(Boolean) });
+  map.getSource("wx-fronts").setData({ type: "FeatureCollection", features: d.conditions.conflicts.map((w, i) => w.t == null ? null : ({ type: "Feature",
+    geometry: { type: "Point", coordinates: [w.lon, w.lat] }, properties: { i, t: w.t, label: `${w.name}: ${deg(w.t)} ${wxText(w.code)}` } })).filter(Boolean) });
+  if (STATE && !selected && !selectedCountry && !readerOpen) renderWeatherList();
+}
+/* ---- rain: RainViewer's last two hours, played as a loop (every other 10-minute frame) */
+async function loadRadar() {
+  let j;
+  try { const r = await fetch("https://api.rainviewer.com/public/weather-maps.json"); if (!r.ok) throw new Error(r.status); j = await r.json(); }
+  catch (_) { return; }
+  const past = (j.radar?.past || []).filter((_, i, a) => (a.length - 1 - i) % 2 === 0);
+  if (!past.length || past.at(-1).path === WEATHER.frames.at(-1)?.path) return;
+  clearRadar();
+  const before = map.getLayer("wx-cone") ? "wx-cone" : undefined;
+  WEATHER.frames = past.map((f, i) => {
+    const id = `wx-radar-${i}`;
+    map.addSource(id, { type: "raster", tiles: [`${j.host}${f.path}/256/{z}/{x}/{y}/2/1_1.png`], tileSize: 256, maxzoom: 7,
+                        attribution: '<a href="https://www.rainviewer.com" target="_blank" rel="noopener">RainViewer</a>' });
+    map.addLayer({ id, type: "raster", source: id, layout: { visibility: WEATHER.on ? "visible" : "none" },
+                   paint: { "raster-opacity": 0, "raster-opacity-transition": { duration: 0 }, "raster-fade-duration": 0 } }, before);
+    return { id, time: f.time, path: f.path };
+  });
+  WEATHER.frame = WEATHER.frames.length - 1;
+  showFrame(WEATHER.frame);
+  radarPlay(WEATHER.on);
+}
+function clearRadar() {
+  for (const f of WEATHER.frames) { if (map.getLayer(f.id)) map.removeLayer(f.id); if (map.getSource(f.id)) map.removeSource(f.id); }
+  WEATHER.frames = [];
+}
+function showFrame(n) {
+  WEATHER.frames.forEach((f, i) => map.setPaintProperty(f.id, "raster-opacity", i === n ? 0.75 : 0));
+  const f = WEATHER.frames[n]; if (!f) return;
+  const t = new Date(f.time * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  $("#wx-radar-time").textContent = `${t}${n === WEATHER.frames.length - 1 ? " (latest)" : ""}`;
+}
+function radarPlay(on) {
+  clearInterval(WEATHER.anim); WEATHER.anim = null;
+  if (!on || !WEATHER.frames.length) return;
+  let hold = 0;
+  WEATHER.anim = setInterval(() => {
+    if (document.hidden) return;
+    if (WEATHER.frame === WEATHER.frames.length - 1 && hold++ < 4) return;   // linger on the latest frame
+    hold = 0;
+    WEATHER.frame = (WEATHER.frame + 1) % WEATHER.frames.length;
+    showFrame(WEATHER.frame);
+  }, 600);
+}
+function renderWeatherList() {
+  $("#reader").hidden = true; readerOpen = false;
+  $("#detail").hidden = true; $("#list").hidden = false; $("#list-tools").hidden = true;
+  const d = WEATHER.data;
+  if (!d) { $("#list").innerHTML = `<div class="empty">Loading the weather…</div>`; return; }
+  const ev = d.hazards.events, caps = d.conditions.capitals.filter(c => c.t != null), fronts = d.conditions.conflicts;
+  const by = (k) => ev.filter(h => h.kind === k).sort((a, b) => (b.score || 0) - (a.score || 0));
+  const hazardCard = (h) => `<div class="card wx-hz" data-lat="${h.lat}" data-lon="${h.lon}" tabindex="0" role="button">
+      <div class="head"><span class="wx-dot" style="background:${WX_KIND[h.kind]};border-color:${WX_ALERT[h.alert]}"></span><span class="name">${esc(h.kind === "cyclone" ? h.title : h.title || h.name)}</span><span class="date">${esc((h.from || "").slice(5, 10))}</span></div>
+      <div class="cy-meta">${h.countries.length ? h.countries.map(cyberFlag).join(", ") : esc(h.place || "at sea")}${h.severity && h.kind === "cyclone" ? ` · ${esc(h.severity.replace(/ \(maximum.*$/, ""))}` : ""} · <span style="color:${WX_ALERT[h.alert]}">${esc(h.alert)} alert</span>${h.report ? ` · <a href="${esc(h.report)}" target="_blank" rel="noopener">GDACS</a>` : ""}</div></div>`;
+  const storms = by("cyclone"), floods = by("flood"), fires = by("wildfire"), droughts = by("drought");
+  const bigFires = fires.filter(h => h.alert !== "green");
+  const ext = (label, arr, fmt) => arr.length ? `<div class="cy-pair"><span class="wx-lab">${label}</span>${cyberFlag(arr[0].iso3)} <span class="v">${fmt(arr[0])}</span></div>` : "";
+  const sorted = (f) => caps.filter(c => f(c) != null).slice().sort((a, b) => f(b) - f(a));
+  $("#list").innerHTML = `<div class="cyber-intro wx-intro">Weather mode: rain, storms, floods and fires, and the weather where the fighting is.
+      Rain, wind and low cloud ground drones and aircraft and turn roads to mud. <button class="linkish" id="weather-off">Back to the conflicts</button></div>
+    <h3 class="gh3">Weather where the fighting is</h3>
+    ${fronts.map((w, i) => `<div class="card wx-front" data-lat="${w.lat}" data-lon="${w.lon}" tabindex="0" role="button">
+      <div class="head"><span class="wx-t" style="color:${tempColor(w.t)}">${deg(w.t)}</span><span class="name">${esc(w.name)}</span><span class="date">${esc(wxText(w.code))}</span></div>
+      <div class="cy-meta">${w.label ? esc(w.label) + " · " : ""}wind ${Math.round(w.wind ?? 0)} km/h, gusts ${Math.round(w.gust ?? 0)} · ${w.cloud ?? "–"}% cloud</div>
+      <div class="gtext">${wxOutlook(w).map(x => esc(wxDay(x))).join("<br>")}</div></div>`).join("") || `<div class="empty small">No conditions loaded yet: the pipeline fetches them hourly.</div>`}
+    <h3 class="gh3">Tropical cyclones <span class="cy-n">${storms.length}</span></h3>
+    ${storms.map(hazardCard).join("") || `<div class="empty small">None active.</div>`}
+    <h3 class="gh3">Floods <span class="cy-n">${floods.length}</span></h3>
+    ${floods.map(hazardCard).join("") || `<div class="empty small">None GDACS is tracking.</div>`}
+    ${droughts.length ? `<h3 class="gh3">Droughts <span class="cy-n">${droughts.length}</span></h3>${droughts.map(hazardCard).join("")}` : ""}
+    <h3 class="gh3">Wildfires <span class="cy-n">${fires.length}</span></h3>
+    <div class="cy-block">${fires.length ? `<div class="cy-row">${Object.entries(fires.flatMap(h => h.countries).reduce((m, c) => (m[c] = (m[c] || 0) + 1, m), {}))
+        .sort((a, b) => b[1] - a[1]).slice(0, 8).map(([c, n]) => `<span class="cy-chip">${cyberFlag(c)} <b>${n}</b></span>`).join("")}</div>` : `<div class="empty small">None GDACS is tracking.</div>`}</div>
+    ${bigFires.map(hazardCard).join("")}
+    <h3 class="gh3">Capitals right now</h3>
+    <div class="cy-block">
+      ${ext("hottest", sorted(c => c.t), c => `${esc(c.name)} ${deg(c.t)}`)}
+      ${ext("coldest", sorted(c => -c.t), c => `${esc(c.name)} ${deg(c.t)}`)}
+      ${ext("windiest", sorted(c => c.gust), c => `${esc(c.name)} gusts ${Math.round(c.gust)} km/h`)}
+      ${ext("wettest", sorted(c => c.rain || null), c => `${esc(c.name)} ${c.rain} mm / 15 min`)}
+      <div class="cy-note">Open-Meteo, updated ${esc(ago(d.conditions.updated))}. Storms, floods and fires: GDACS (UN and European Commission), updated ${esc(ago(d.hazards.updated))}. Rain: RainViewer, radar and satellite, last 2 hours.</div></div>`;
+  $("#weather-off").addEventListener("click", () => setWeather(false));
+  document.querySelectorAll("#list .wx-front, #list .wx-hz").forEach(el => el.addEventListener("click", (e) => {
+    if (e.target.closest("a")) return;
+    map.flyTo({ center: [+el.dataset.lon, +el.dataset.lat], zoom: Math.max(map.getZoom(), 5), speed: 0.9, padding: sheetPadding() });
+  }));
+}
+/* the same ramp as the map, for the list */
+function tempColor(t) {
+  const stops = [[-25, "#8f7bff"], [-10, "#5b8cff"], [0, "#6fd3ff"], [10, "#7fe0a0"], [20, "#ffe066"], [28, "#ff9a3d"], [36, "#ff4d4d"], [45, "#c2185b"]];
+  if (t == null) return "var(--muted)";
+  return (stops.find(([v]) => t <= v) || stops.at(-1))[1];
+}
+function setWeather(on) {
+  if (on === WEATHER.on) return;
+  if (on && GOOD.on) setGood(false);
+  if (on && CYBER.on) setCyber(false);
+  WEATHER.on = on;
+  document.body.classList.toggle("weather-mode", on);
+  $("#weather-btn").setAttribute("aria-pressed", on); $("#tg-weather").checked = on;
+  try { localStorage.setItem("weatherMode", on ? "1" : "0"); } catch (_) {}
+  if (on) {
+    WEATHER.stash = {};
+    for (const id of WEATHER_HIDES) { const el = document.getElementById(id); WEATHER.stash[id] = el.type === "checkbox" ? el.checked : el.value; }
+    for (const id of WEATHER_HIDES) setControl(id, false);
+  } else {
+    const stash = WEATHER.stash || {}; WEATHER.stash = null;
+    for (const [id, v] of Object.entries(stash)) setControl(id, v);
+  }
+  for (const id of WEATHER_HIDES) document.getElementById(id).disabled = on;
+  for (const id of [...WEATHER_LAYERS, ...WEATHER.frames.map(f => f.id)]) if (map.getLayer(id)) map.setLayoutProperty(id, "visibility", on ? "visible" : "none");
+  radarPlay(on);
+  clearInterval(WEATHER.timer); WEATHER.timer = null; clearInterval(WEATHER.radarTimer); WEATHER.radarTimer = null;
+  if (on) {
+    loadWeather(); WEATHER.timer = setInterval(loadWeather, 10 * 60000);
+    loadRadar(); WEATHER.radarTimer = setInterval(loadRadar, 5 * 60000);
+  }
+  if (!$("#news").hidden) loadHeadlines();
+  syncLegend(); saveSettings();
+  if (GOOD.raw) { STATE = viewOf(GOOD.raw); LIST.status = ""; render(); }
+}
+$("#weather-btn").addEventListener("click", () => setWeather(!WEATHER.on));
+$("#tg-weather").addEventListener("change", (e) => setWeather(e.target.checked));
 
 /* ---------- strikes ---------- */
 let strikeAnim = null;      // {items:[{path, color, id, hasPath}], start}
@@ -2265,17 +2505,17 @@ const PIN = `<svg viewBox="0 0 16 16" width="10" height="10" aria-hidden="true">
 function headlineConflict(h) { return h.conflict && STATE && STATE.conflicts ? STATE.conflicts.find(c => c.id === h.conflict) : null; }
 async function loadHeadlines() {
   let items;
-  try { const r = await fetch(`/api/headlines?good=${GOOD.on ? 1 : 0}&cyber=${CYBER.on ? 1 : 0}`); if (!r.ok) throw new Error(r.status); items = (await r.json()).items || []; }
+  try { const r = await fetch(`/api/headlines?good=${GOOD.on ? 1 : 0}&cyber=${CYBER.on ? 1 : 0}&weather=${WEATHER.on ? 1 : 0}`); if (!r.ok) throw new Error(r.status); items = (await r.json()).items || []; }
   catch (_) { if (NEWS.items.length) return; items = []; }                // keep the last list through a hiccup
   NEWS.items = items;
   $("#news").hidden = false;
-  $("#news .news-h").textContent = CYBER.on ? "Cyber headlines" : GOOD.on ? "Good news headlines" : "Top headlines";
-  $("#news-foot-key").hidden = GOOD.on || CYBER.on;
+  $("#news .news-h").textContent = CYBER.on ? "Cyber headlines" : WEATHER.on ? "Weather headlines" : GOOD.on ? "Good news headlines" : "Top headlines";
+  $("#news-foot-key").hidden = GOOD.on || CYBER.on || WEATHER.on;
   $("#news-list").innerHTML = items.map((h, i) => {
     const others = h.outlets.filter(o => o !== h.outlet);
     const c = GOOD.on ? null : headlineConflict(h);
-    const edge = c ? (STATUS_COLOR[c.status] || STATUS_COLOR.active) : h.topic === "cyber" ? CYBER_COLOR.news : (LOCAL_COLOR[h.topic] || LOCAL_COLOR.other);
-    const tip = c ? `${c.name}: ${STATUS_LABEL[c.status] || c.status}` : { violence: "violence & crime", tension: "protest & tension", good: "good news", cyber: "cyber news" }[h.topic] || "other news";
+    const edge = c ? (STATUS_COLOR[c.status] || STATUS_COLOR.active) : h.topic === "cyber" ? CYBER_COLOR.news : h.topic === "weather" ? WX_KIND.flood : (LOCAL_COLOR[h.topic] || LOCAL_COLOR.other);
+    const tip = c ? `${c.name}: ${STATUS_LABEL[c.status] || c.status}` : { violence: "violence & crime", tension: "protest & tension", good: "good news", cyber: "cyber news", weather: "weather news" }[h.topic] || "other news";
     return `<li tabindex="0" role="button" data-i="${i}" style="--hl:${edge}" title="${esc(h.place ? `Opens the article and shows ${h.place.name} on the map` : "Opens the article")}">
       <div class="t">${esc(h.title)}</div>
       <div class="m"><span class="tp" title="${esc(tip)}"></span>${esc(h.outlet)} · ${esc(ago(h.published))}${others.length ? ` · <span class="n" title="Also: ${esc(others.join(", "))}">${h.outlets.length} outlets</span>` : ""}${h.place ? ` · <span class="pl">${PIN}${esc(h.place.name)}</span>` : ""}</div>

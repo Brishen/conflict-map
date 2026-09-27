@@ -227,9 +227,15 @@ def _conflict_links(con) -> dict[str, str]:
 
 
 CYBER_OUTLETS = {k for k, v in OUTLETS.items() if v.get("cyber")}
+# weather mode: storms, floods, heat, cold, drought and fire; not quakes, crashes or "a storm of criticism"
+WEATHER = re.compile(r"\b(weather|flood|flooding|floods|flash.flood|storm|hurricane|typhoon|cyclone|tornado|monsoon|heatwave|"
+                     r"heat wave|heat|drought|wildfire|bushfire|forest fire|blizzard|snowstorm|snow|hail|downpour|torrential|"
+                     r"rainfall|heavy rain|landslide|mudslide|el ni.o|la ni.a|temperatures?|freez|frost|cold snap|climate)\b", re.I)
+NOT_WEATHER = re.compile(r"\b(storm(ed|s|ing)? (of|the|into|out)|brainstorm|heat of|in the heat|firestorm of|political storm|"
+                         r"media storm|shitstorm|twitter storm|stormzy|heated)\b", re.I)
 
 
-def _build(hours: int, limit: int, good: bool, cyber: bool = False) -> list[dict]:
+def _build(hours: int, limit: int, good: bool, cyber: bool = False, weather: bool = False) -> list[dict]:
     since = int(time.time()) - hours * 3600
     with db() as con:
         rows = con.execute("SELECT link, source, title, published FROM articles WHERE published > ? "
@@ -245,6 +251,8 @@ def _build(hours: int, limit: int, good: bool, cyber: bool = False) -> list[dict
         if cyber and ((outlet not in CYBER_OUTLETS and not CYBER_TERMS.search(title)) or not SECURITY.search(title)):
             continue
         if not cyber and outlet in CYBER_OUTLETS:
+            continue
+        if weather and (not WEATHER.search(title) or NOT_WEATHER.search(title)):
             continue
         words = _words(title)
         if len(words) < 2:
@@ -279,20 +287,20 @@ def _build(hours: int, limit: int, good: bool, cyber: bool = False) -> list[dict
         if not place and epi and epi.get("lat") is not None:
             place = {"name": epi.get("label") or "", "lat": epi["lat"], "lon": epi["lon"], "zoom": 5}
         out.append({**{k: s[k] for k in ("title", "link", "outlet", "published", "outlets", "first")},
-                    "topic": "good" if good else "cyber" if cyber else _topic(s["titles"]), "conflict": conflict, "place": place})
+                    "topic": "good" if good else "cyber" if cyber else "weather" if weather else _topic(s["titles"]), "conflict": conflict, "place": place})
     return out
 
 
-def top(limit: int = 10, good: bool = False, cyber: bool = False) -> list[dict]:
+def top(limit: int = 10, good: bool = False, cyber: bool = False, weather: bool = False) -> list[dict]:
     """Cached for a minute: the feeds are only fetched every few minutes anyway."""
-    key = (limit, good, cyber)
+    key = (limit, good, cyber, weather)
     with _lock:
         hit = _cache.get(key)
         if hit and time.time() - hit[0] < 60:
             return hit[1]
-        items = _build(12, limit, good, cyber)
-        if len(items) < limit:                     # a quiet night (or the slower cyber news): reach back further
-            items = _build(48 if cyber else 24, limit, good, cyber)
+        items = _build(12, limit, good, cyber, weather)
+        if len(items) < limit:                     # a quiet night (or the slower cyber and weather news): reach back further
+            items = _build(48 if cyber or weather else 24, limit, good, cyber, weather)
         _cache[key] = (time.time(), items)
         return items
 

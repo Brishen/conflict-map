@@ -5,7 +5,7 @@ import sqlite3
 import subprocess
 import time
 
-from . import advisories, cleanup, cyber, dedupe, extract, feeds, gdelt, territory
+from . import advisories, cleanup, cyber, dedupe, extract, feeds, gdelt, territory, weather
 from . import stats as figures
 from .config import DATA_DIR, DB_PATH, PUSH_TARGET
 from .db import db, set_state, store_report
@@ -32,6 +32,7 @@ def refresh(skip_llm: bool = False, gdelt_files: int | None = None):
         log.exception("territory failed")
         stats["territory_error"] = str(e)
     stats["cyber"] = cyber.refresh_feeds()                 # logs and keeps the last good copy on failure
+    stats["weather"] = weather.refresh()                   # same; conditions at most hourly
     if not skip_llm:
         try:
             stats["cyber"]["incidents"] = cyber.extract_all()
