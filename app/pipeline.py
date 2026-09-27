@@ -5,7 +5,7 @@ import sqlite3
 import subprocess
 import time
 
-from . import cleanup, dedupe, extract, feeds, gdelt
+from . import advisories, cleanup, dedupe, extract, feeds, gdelt
 from . import stats as figures
 from .config import DATA_DIR, DB_PATH, PUSH_TARGET
 from .db import db, set_state, store_report
@@ -31,6 +31,7 @@ def refresh(skip_llm: bool = False, gdelt_files: int | None = None):
             stats["conflicts_updated"] = extract.run_all()
             stats["duplicates_merged"] = dedupe.merge_duplicates()
             stats["untrusted_removed"] = cleanup.purge_untrusted()
+            stats["travel_advice"] = advisories.refresh()
             stats["figures_updated"] = figures.refresh()
         except Exception as e:  # noqa: BLE001
             log.exception("extract failed")

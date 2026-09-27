@@ -141,6 +141,15 @@ map.on("load", async () => {
       "fill-color-transition": { duration: 650 }, "fill-opacity-transition": { duration: 650 },
     },
   });
+  // official travel advice (optional): shaded by the level of the chosen government's advice
+  map.addLayer({
+    id: "advice-fill", type: "fill", source: "countries", layout: { visibility: "none" },
+    paint: {
+      "fill-color": ["match", ["coalesce", ["feature-state", "adv"], -1], ...ADVICE_COLORS.flatMap((c, i) => [i, c]), "rgba(0,0,0,0)"],
+      "fill-opacity": ["case", [">=", ["coalesce", ["feature-state", "adv"], -1], 0], 0.55, 0],
+      "fill-opacity-transition": { duration: 400 },
+    },
+  });
   map.addLayer({ id: "lakes", type: "fill", source: "lakes", paint: { "fill-color": "#0c1424", "fill-opacity": 0.9 } });
   map.addLayer({
     id: "rivers", type: "line", source: "rivers", minzoom: 3,
@@ -500,7 +509,8 @@ map.on("load", async () => {
     tip.innerHTML = `<b>${esc(f.properties.NAME_EN || f.properties.NAME)}</b>` +
       (h ? `<br>${h.events} conflict events · ${h.mentions} mentions (${STATE.gdelt.hours}h)` : "<br>no GDELT conflict events") +
       (inv.length ? `<br>involved in: ${esc(inv.join(", "))}` : "") +
-      (inv.length > 1 ? `<br><span style="opacity:.6">click to see all ${inv.length} and who is on which side</span>` : "");
+      (inv.length > 1 ? `<br><span style="opacity:.6">click to see all ${inv.length} and who is on which side</span>` : "") +
+      adviceTip(iso);
     tip.hidden = false; tip.style.left = (e.point.x + 14) + "px"; tip.style.top = (e.point.y + 14) + "px";
   });
   map.on("mouseleave", "country-fill", () => { tip.hidden = true; });
@@ -509,7 +519,14 @@ map.on("load", async () => {
     if (fuzzyTap(e)) return;                        // a finger landed next to one
     const iso = e.features[0].properties.ADM0_A3;
     const list = conflictsFor(iso);
-    if (!list.length) return;                       // fall through to the map click (deselect)
+    if (!list.length) {                              // no conflict here: show the official travel advice, if any
+      if (ADVICE && (ADVICE.fcdo?.[iso] || ADVICE.us?.[iso])) {
+        e.originalEvent._handled = true;
+        new maplibregl.Popup({ closeButton: true, maxWidth: "320px" }).setLngLat(e.lngLat)
+          .setHTML(`<b>${esc(countryName(iso))}</b>${adviceHtml(iso)}`).addTo(map);
+      }
+      return;                                        // otherwise fall through to the map click (deselect)
+    }
     e.originalEvent._handled = true;
     if (list.length === 1) select(list[0].id); else selectCountry(iso);   // several conflicts: show them all
   });
@@ -517,6 +534,7 @@ map.on("load", async () => {
   await loadCountries();
   restoreSettings();          // before the first data load so the 24h/48h window is right
   await load();
+  await loadAdvice(); setInterval(loadAdvice, 3600000);   // before a shared #country= view renders its advice box
   const shared = hashParam("c"), sharedCountry = hashParam("country");
   if (shared && STATE.conflicts.find(c => c.id === shared)) select(shared, { keepView: true });
   else if (sharedCountry && conflictsFor(sharedCountry).length) selectCountry(sharedCountry);
@@ -566,7 +584,7 @@ function render() {
 
 function renderStatus() {
   const m = STATE.meta, g = STATE.gdelt;
-  const parts = [`<b>Updated ${esc(ago(m.last_extract?.at))}</b>`, `${STATE.conflicts.length} conflicts`, `${m.sources} news sources`];
+  const parts = [`<b>Updated ${esc(ago(m.last_extract?.at))}</b>`, `${STATE.conflicts.length} conflicts`, `${m.sources} news outlets`];
   if (ONLINE) parts.unshift(`<span class="online" title="People with the map open right now (each open tab counts)"><i></i>${ONLINE} online</span>`);
   if (m.busy) parts.push(m.unprocessed ? `refreshing now, ${m.unprocessed} articles to read` : "refreshing now");
   else if (m.unprocessed && !m.serve_only) parts.push(`${m.unprocessed} articles queued`);
@@ -612,7 +630,10 @@ function renderMarkers() {
     const size = markerSize(c);
     el.style.width = el.style.height = size + "px";
     el.style.color = STATUS_COLOR[c.status] || STATUS_COLOR.active;
-    el.className = `mk st-${c.status in STATUS_COLOR ? c.status : "active"}`;
+    // toggle our classes only: the marker library keeps its own (maplibregl-marker ...) on this element,
+    // and those are what pin it to its coordinates
+    const st = c.status in STATUS_COLOR ? c.status : "active";
+    for (const k of Object.keys(STATUS_COLOR)) el.classList.toggle(`st-${k}`, k === st);
     el.title = `${c.name} (${c.status})`;
     el.setAttribute("aria-label", `${c.name}, ${c.status}, severity ${c.severity || 1} of 5`);
     el.classList.toggle("dim", !!(focus && !focus.has(c.id)));
@@ -1082,6 +1103,7 @@ function renderCountry() {
     <button class="back">← all conflicts</button>
     <h2>${flag(iso)} ${esc(name)}</h2>
     <div class="meta">Involved in ${perConflict.length} conflicts</div>
+    ${adviceHtml(iso)}
     <div class="rel-key"><span><i style="background:${REL_COLOR.ally}"></i>same side</span><span><i style="background:${REL_COLOR.enemy}"></i>opposing side</span><span><i style="background:${REL_COLOR.other}"></i>mediators &amp; others</span></div>
     ${perConflict.map(({ c, me, groups }) => `<div class="card ccard" data-id="${esc(c.id)}" tabindex="0" role="button">
       <div class="head"><span class="name">${esc(c.name)}</span>${sevbar(c.severity)}<span class="badge st-${esc(c.status)}">${esc(STATUS_LABEL[c.status] || c.status)}</span></div>
@@ -1097,7 +1119,7 @@ function renderCountry() {
 /* ---------- remember settings across reloads (per browser) ---------- */
 const SETTINGS_KEY = "conflictMapSettings";
 const SETTING_IDS = ["tg-globe", "tg-rotate", "tg-night", "tg-heat", "tg-arcs", "tg-gdelt-arcs", "tg-strikes",
-                     "tg-incidents", "tg-aircraft", "tg-ships", "tg-local", "window", "sort"];
+                     "tg-incidents", "tg-aircraft", "tg-ships", "tg-local", "tg-advice", "window", "sort"];
 const SETTINGS_VERSION = 2;     // 2: spin off by default; a saved "spin on" from before was just the old default
 function saveSettings() {
   const out = {};
@@ -1405,6 +1427,47 @@ function applyIncidentFocus() {
   const isos = Object.keys(focusColors());
   map.setFilter("incidents", isos.length ? ["in", ["get", "iso3"], ["literal", isos]] : null);
 }
+
+/* ---------- official travel advice (UK FCDO, US State Department), shown as published ---------- */
+const ADVICE_COLORS = ["#3f8f63", "#d9c24a", "#e8893a", "#d4502a", "#9e1b1b"];      // FCDO 0-4 (US 1-4 reuses 0,1,2,4)
+const US_TO_SHADE = { 1: 0, 2: 1, 3: 2, 4: 4 };
+let ADVICE = null, adviceShown = new Set();
+async function loadAdvice() {
+  try { ADVICE = await (await fetch("/api/travel-advice")).json(); } catch (_) { return; }
+  applyAdvice();
+}
+function applyAdvice() {
+  const which = $("#tg-advice").value;
+  map.setLayoutProperty("advice-fill", "visibility", which ? "visible" : "none");
+  for (const iso of adviceShown) map.setFeatureState({ source: "countries", id: iso }, { adv: null });
+  adviceShown = new Set();
+  if (selectedCountry && !selected && !readerOpen) renderCountry();     // its advice box
+  if (!which || !ADVICE) return;
+  for (const [iso, a] of Object.entries(ADVICE[which] || {})) {
+    const lvl = which === "us" ? US_TO_SHADE[a.level] : a.level;
+    if (lvl == null) continue;
+    map.setFeatureState({ source: "countries", id: iso }, { adv: lvl });
+    adviceShown.add(iso);
+  }
+}
+function adviceLine(iso, which) {
+  const a = ADVICE?.[which]?.[iso]; if (!a) return "";
+  return which === "fcdo" ? `UK: ${a.text}${a.also ? ", " + a.also : ""}` : `US: Level ${a.level}, ${a.text.toLowerCase()}`;
+}
+function adviceTip(iso) {
+  const lines = ["fcdo", "us"].map(w => adviceLine(iso, w)).filter(Boolean);
+  return lines.length ? `<br><span style="opacity:.75">${lines.map(esc).join("<br>")}</span>` : "";
+}
+function adviceHtml(iso) {
+  const f = ADVICE?.fcdo?.[iso], u = ADVICE?.us?.[iso];
+  if (!f && !u) return "";
+  const day = (s) => s ? new Date(s).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" }) : "";
+  return `<div class="advice-box"><div class="who">Official travel advice</div>
+    ${f ? `<div><span class="adv a${f.level}"></span> <b>UK Foreign Office:</b> ${esc(f.text)}${f.also ? ", " + esc(f.also) : ""}. <a href="${esc(f.url)}" target="_blank" rel="noopener">Read it ↗</a> <span class="fine">updated ${esc(day(f.updated))}</span></div>` : ""}
+    ${u ? `<div><span class="adv u${u.level}"></span> <b>US State Dept:</b> Level ${u.level}, ${esc(u.text)}. <a href="${esc(u.url)}" target="_blank" rel="noopener">Read it ↗</a> <span class="fine">updated ${esc(day(u.updated))}</span></div>` : ""}
+    <div class="fine">Shown as published by each government. Read the full advice before you travel; it often differs by region.</div></div>`;
+}
+$("#tg-advice").addEventListener("change", () => { applyAdvice(); syncLegend(); });
 
 /* ---------- local news ---------- */
 const LOCAL_MINZOOM = 4;
@@ -1752,7 +1815,8 @@ async function openTv() {
   if ($("#tv").hidden) return;                                       // closed while loading
   if (!TV.channels.length) { $("#tv-screen").innerHTML = `<div class="tv-msg">Couldn't load the channel list. Try again in a minute.</div>`; return; }
   const saved = tvPref("channel");
-  const first = TV.channels.find(c => c.key === saved && c.live !== false) || TV.channels.find(c => c.live !== false) || TV.channels[0];
+  const first = TV.channels.find(c => c.key === saved && c.live !== false) || TV.channels.find(c => c.key === "sky" && c.live !== false)
+    || TV.channels.find(c => c.live !== false) || TV.channels[0];                    // Sky News unless you picked another
   playTv(first.key);
 }
 function closeTv() {
@@ -1766,7 +1830,7 @@ function renderTvChannels() {
 function playTv(key) {
   const c = TV.channels.find(x => x.key === key); if (!c) return;
   TV.key = key; tvPref("channel", key); renderTvChannels();
-  $("#tv-chans [aria-selected=true]")?.scrollIntoView({ block: "nearest", inline: "nearest" });
+  $("#tv-now").textContent = c.label;
   $("#tv-yt").href = c.youtube;
   if (c.live === false) {
     $("#tv-screen").innerHTML = `<div class="tv-msg">${esc(c.label)} isn't streaming live right now.<button id="tv-next">Watch another channel</button></div>`;
@@ -1805,6 +1869,7 @@ function initialLegend() {
 /* the key only lists what is on the map: rows for switched-off layers are hidden */
 function syncLegend() {
   document.querySelectorAll("#legend [data-layer]").forEach(r => r.classList.toggle("off", !document.getElementById(r.dataset.layer).checked));
+  document.querySelectorAll("#legend [data-advice]").forEach(r => r.classList.toggle("off", $("#tg-advice").value !== r.dataset.advice));
 }
 $("#menu-btn").addEventListener("click", () => toggleMenu());
 $("#legend-btn").addEventListener("click", () => toggleLegend(undefined, true));

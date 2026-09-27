@@ -13,8 +13,8 @@ log = logging.getLogger("livetv")
 
 # key, label, YouTube handle, channel id (the channel id is the fallback embed and the ownership check)
 CHANNELS = [
+    ("sky", "Sky News", "@SkyNews", "UCoMdktPbSTixAyNGwb-UYkQ"),            # the default channel
     ("aljazeera", "Al Jazeera", "@AlJazeeraEnglish", "UCNye-wNBqNL5ZzHSJj3l8Bg"),
-    ("sky", "Sky News", "@SkyNews", "UCoMdktPbSTixAyNGwb-UYkQ"),
     ("dw", "DW News", "@DWNews", "UCknLrEdhRCp1aegoMqRaCZg"),
     ("france24", "France 24", "@FRANCE24_en", "UCQfwfsi5VrQ8yKZ-UWmAEFg"),
     ("euronews", "Euronews", "@euronews", "UCSrZ3UV4jOidv8ppoVuvW9Q"),

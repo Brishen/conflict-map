@@ -86,7 +86,9 @@ def build_state(hours: int, strike_days: int) -> dict:
             "unprocessed": con.execute("SELECT COUNT(*) FROM articles WHERE processed=0").fetchone()[0],
             "articles": con.execute("SELECT COUNT(*) FROM articles").fetchone()[0],
             "skipped": con.execute("SELECT COUNT(*) FROM articles WHERE processed=2").fetchone()[0],
-            "sources": con.execute("SELECT COUNT(DISTINCT source) FROM articles WHERE published > strftime('%s','now') - 7*86400").fetchone()[0],
+            # outlets (not feeds) currently in use that published something this week
+            "sources": len({outlet_of(r[0]) for r in con.execute(
+                "SELECT DISTINCT source FROM articles WHERE published > strftime('%s','now') - 7*86400")} - {None}),
             "busy": _lock.locked(),
             "serve_only": SERVE_ONLY,
             "outlets": {k: {"country": v["country"], "note": v["note"]} for k, v in OUTLETS.items()},
@@ -242,6 +244,13 @@ async def refresh(skip_llm: bool = False):
 async def local_news(w: float, s: float, e: float, n: float):
     items = await asyncio.to_thread(gdelt.local_news, w, s, e, n)
     return JSONResponse({"items": items}, headers={"Cache-Control": "max-age=60"})
+
+
+@app.get("/api/travel-advice")
+def travel_advice():
+    with db() as con:
+        t = get_state(con, "travel_advice") or {}
+    return JSONResponse(t, headers={"Cache-Control": "max-age=600"})
 
 
 @app.get("/api/live-tv")
