@@ -94,6 +94,14 @@ const HEAT_OPACITY_EXPR = ["+", 0.12, ["*", 0.6, ["coalesce", ["feature-state", 
 const hashParam = (k) => new URLSearchParams(location.hash.slice(1)).get(k);
 // read before the map exists: with hash: "map" it writes its own #map= on load
 const sharedView = !!hashParam("map");
+/* where this browser last left the map; a shared #map= link wins over it */
+const savedView = (() => {
+  if (sharedView) return null;
+  try {
+    const v = JSON.parse(localStorage.getItem("mapView") || "null");
+    return v && [v.lon, v.lat, v.zoom].every(Number.isFinite) ? v : null;
+  } catch (_) { return null; }
+})();
 const map = new maplibregl.Map({
   container: "map",
   style: {
@@ -113,7 +121,7 @@ const map = new maplibregl.Map({
       { id: "relief", type: "raster", source: "relief", paint: { "raster-opacity": 1, "raster-fade-duration": 150 } },
     ],
   },
-  center: [25, 22], zoom: isMobile() ? fitGlobeZoom() : 2.25, minZoom: 0.8, maxZoom: 9, attributionControl: false, preserveDrawingBuffer: true,
+  center: savedView ? [savedView.lon, savedView.lat] : [25, 22], zoom: savedView ? savedView.zoom : isMobile() ? fitGlobeZoom() : 2.25, minZoom: 0.8, maxZoom: 9, attributionControl: false, preserveDrawingBuffer: true,
   maxPitch: 0,
   hash: "map",   // #map=zoom/lat/lon in the URL, so a view can be copied and shared
 });
@@ -123,6 +131,16 @@ function setHashParam(k, v) {
   history.replaceState(null, "", "#" + q.toString().replace(/%2F/g, "/"));
 }
 map.addControl(new maplibregl.NavigationControl({ showCompass: false }), "top-left");
+{
+  let t = null;
+  map.on("moveend", () => {
+    clearTimeout(t);
+    t = setTimeout(() => {
+      const c = map.getCenter().wrap();
+      try { localStorage.setItem("mapView", JSON.stringify({ lon: +c.lng.toFixed(3), lat: +c.lat.toFixed(3), zoom: +map.getZoom().toFixed(2) })); } catch (_) {}
+    }, 1000);
+  });
+}
 let hoverIso = null;
 
 map.on("load", async () => {
@@ -758,7 +776,11 @@ function sevbar(n) { return `<span class="sevbar">${[1, 2, 3, 4, 5].map(i => `<i
 
 function reveal(el) { el.classList.remove("reveal"); void el.offsetWidth; el.classList.add("reveal"); }
 /* list search / filters (the map markers and labels follow them too) */
-const LIST = { q: "", status: "" };
+const LIST = { q: "", status: "", region: "" };     // region: a remembered choice waiting for the options to exist
+try { const f = JSON.parse(localStorage.getItem("listFilter") || "null"); if (f) { LIST.status = f.status || ""; LIST.region = f.region || ""; } } catch (_) {}
+function saveListFilter() {
+  try { localStorage.setItem("listFilter", JSON.stringify({ status: LIST.status, region: $("#region").value || LIST.region })); } catch (_) {}
+}
 const STATUS_LABEL = { escalating: "escalating", active: "active", "de-escalating": "easing", ceasefire: "ceasefire", frozen: "frozen" };
 function listMatch(c, ignoreStatus = false) {
   if (!ignoreStatus && LIST.status && c.status !== LIST.status) return false;
@@ -784,14 +806,14 @@ function renderListTools() {
   $("#status-chips").innerHTML = chip("", "All", total) +
     Object.keys(STATUS_LABEL).filter(st => counts[st] || LIST.status === st).map(st => chip(st, STATUS_LABEL[st], counts[st] || 0)).join("");
   const regions = [...new Set(STATE.conflicts.map(c => c.region).filter(Boolean))].sort();
-  const sel = $("#region"), cur = sel.value;
+  const sel = $("#region"), cur = sel.value || LIST.region;
   const want = ["", ...regions].join("|");
   if (sel.dataset.opts !== want) {
     sel.innerHTML = `<option value="">All regions</option>` + regions.map(r => `<option>${esc(r)}</option>`).join("");
-    sel.value = regions.includes(cur) ? cur : ""; sel.dataset.opts = want;
+    sel.value = regions.includes(cur) ? cur : ""; sel.dataset.opts = want; LIST.region = "";
   }
 }
-function applyListFilter() { renderList({ animate: false }); renderMarkers(); }
+function applyListFilter() { saveListFilter(); renderList({ animate: false }); renderMarkers(); }
 
 function renderList({ animate = true } = {}) {
   $("#reader").hidden = true; readerOpen = false;
@@ -1867,8 +1889,19 @@ async function ping() {
       body: JSON.stringify({ id: TAB_ID, view: selected || "" }) })).json();
     if (r.online !== ONLINE) { ONLINE = r.online; if (STATE) renderStatus(); }
     VIEWS = r.views || {}; updateViewing();
+    checkVersion(r.version);
   } catch (_) {}
 }
+/* the first answer is the version this page was loaded with; a different one later means a deploy happened */
+let SITE_VERSION = null;
+function checkVersion(v) {
+  if (!v) return;
+  if (!SITE_VERSION) { SITE_VERSION = v; return; }
+  if (v === SITE_VERSION || !$("#update-note").hidden) return;
+  $("#update-note").hidden = false;
+}
+$("#update-reload").addEventListener("click", () => location.reload());
+$("#update-close").addEventListener("click", () => { $("#update-note").hidden = true; SITE_VERSION = null; });   // ask again after the next deploy
 const leave = () => navigator.sendBeacon?.("/api/presence", new Blob([JSON.stringify({ id: TAB_ID, leave: true })], { type: "application/json" }));
 document.addEventListener("visibilitychange", () => document.hidden ? leave() : ping());
 window.addEventListener("pagehide", leave);

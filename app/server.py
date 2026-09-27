@@ -262,6 +262,22 @@ async def live_tv():
 
 # ---- who is here now: each open, visible tab pings with a random per-tab id; nothing else is kept
 PRESENCE_TTL = 70            # seconds without a ping before a tab stops counting (tabs ping every 25 s)
+_site_version: dict = {}
+
+
+def site_version() -> str:
+    """Short hash of the page, script and stylesheet; changes whenever a deploy changes what visitors run.
+    Keyed on modification times so the files are only re-read after they change."""
+    files = [STATIC_DIR / n for n in ("index.html", "app.js", "style.css")]
+    key = tuple(f.stat().st_mtime for f in files)
+    if _site_version.get("key") != key:
+        h = hashlib.sha1()
+        for f in files:
+            h.update(f.read_bytes())
+        _site_version.update(key=key, v=h.hexdigest()[:12])
+    return _site_version["v"]
+
+
 _presence: dict[str, tuple[float, str]] = {}   # tab id -> (last ping, conflict id it has open or "")
 
 
@@ -286,7 +302,8 @@ async def presence(request: Request):
     for _, v in _presence.values():
         if v:
             views[v] = views.get(v, 0) + 1
-    return JSONResponse({"online": len(_presence), "views": views}, headers={"Cache-Control": "no-store"})
+    return JSONResponse({"online": len(_presence), "views": views, "version": site_version()},
+                        headers={"Cache-Control": "no-store"})
 
 
 # ---- "Report a problem": visitors flag wrong locations, non-conflicts, wrong sides. Nothing is shown publicly.
