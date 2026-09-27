@@ -782,7 +782,7 @@ function renderList({ animate = true } = {}) {
     return `<div class="card ${c.id === selected ? "selected" : ""}" data-id="${esc(c.id)}" tabindex="0" role="button">
       <div class="head"><span class="name">${esc(c.name)}</span>${sevbar(c.severity)}<span class="badge st-${esc(c.status)}">${esc(STATUS_LABEL[c.status] || c.status)}</span></div>
       <div class="region">${esc(c.region || "")} · updated ${ago(c.updated)}${nStrikes(c.id) ? ` · ${nStrikes(c.id)} attack${nStrikes(c.id) === 1 ? "" : "s"} / 7d` : ""}<span class="viewing" data-viewing="${esc(c.id)}" hidden></span></div>
-      <div class="flags">${[...new Set(combat)].join(" ")}<span style="opacity:.5"> ${[...new Set(others)].join(" ")}</span></div>
+      <div class="flags">${[...new Set(combat)].join(" ")}<span style="opacity:.5"> ${[...new Set(others)].join(" ")}</span>${(c.outlets || []).length < 2 ? `<span class="ob limited" title="${(c.outlets || []).length ? "Only " + esc(c.outlets[0]) + " has" : "None of the current outlets have"} reported on this recently">limited reporting</span>` : ""}</div>
     </div>`;
   }).join("") || `<div class="empty">No conflicts match these filters.<br><br><button id="clear-filters">Clear filters</button></div>`;
   document.querySelectorAll(".card").forEach(el => el.addEventListener("click", () => select(el.dataset.id)));
@@ -790,6 +790,30 @@ function renderList({ animate = true } = {}) {
   $("#clear-filters")?.addEventListener("click", () => {
     LIST.q = ""; LIST.status = ""; $("#q").value = ""; $("#region").value = ""; applyListFilter(); $("#q").focus();
   });
+}
+
+/* ---------- trust signals: checked against the article, how many outlets, outlet from a party country ---------- */
+function checkedBadge(v) {
+  if (v === 1) return `<span class="vb ok" title="Checked against the full text of the article it cites">✓ checked</span>`;
+  if (v === 0) return `<span class="vb warn" title="The article couldn't be read to check this (paywall or blocked); treat with care">not checked</span>`;
+  return `<span class="vb old" title="Recorded before claims were checked against their articles">older, unchecked</span>`;
+}
+function outletsBadge(outlets) {
+  const n = (outlets || []).length;
+  if (n >= 2) return `<span class="ob multi" title="Reported by ${esc(outlets.join(", "))}">${n} outlets</span>`;
+  if (n === 1) return `<span class="ob one" title="Only ${esc(outlets[0])} has reported this so far">single source</span>`;
+  return `<span class="ob gone" title="From a news source that is no longer used; it will age out">old source</span>`;
+}
+/* "US outlet" when the outlet's home country is itself a party to the conflict being read */
+function partyOutletLabel(outlet, c) {
+  const info = (STATE.meta.outlets || {})[outlet];
+  if (!info || !info.country || !c || !c.parties.some(p => norm(p.country) === info.country)) return "";
+  return `<span class="po" title="${esc(outlet)} (${esc(info.note)}) is based in ${esc(countryName(info.country))}, a party to this conflict">${esc(countryName(info.country))} outlet</span>`;
+}
+/* a party or consequence: its source links, or a "background" tag when no article stated it */
+function citeMarks(x) {
+  if ((x.sources || []).length) return x.sources.map(u => ` <a class="cite" href="${esc(u)}" target="_blank" rel="noopener" title="source: ${esc(host(u))}">↗</a>`).join("");
+  return ` <span class="bg" title="From general background knowledge, not stated in a cited article">background</span>`;
 }
 
 function renderDetail() {
@@ -801,31 +825,35 @@ function renderDetail() {
   const party = (p) => {
     const iso = norm(p.country);
     return `<div class="party ${esc(p.side || "other")}"><span class="flag">${iso ? flag(iso) : "▪"}</span>
-      <span class="pname">${esc(p.name)}</span><span class="role">${esc(p.role)}</span><span class="note">${esc(p.note || "")}</span></div>`;
+      <span class="pname">${esc(p.name)}</span><span class="role">${esc(p.role)}</span><span class="note">${esc(p.note || "")}${citeMarks(p)}</span></div>`;
   };
   const sideBlock = (k, lbl) => bySide[k].length ? `<div class="side"><div class="lbl">${lbl}</div>${bySide[k].map(party).join("")}</div>` : "";
   d.innerHTML = `
     <button class="back">← ${backCountry ? esc(countryName(backCountry)) : "all conflicts"}</button>
     <h2>${esc(c.name)}</h2>
     <div class="meta"><span class="badge st-${esc(c.status)}">${esc(STATUS_LABEL[c.status] || c.status)}</span>${sevbar(c.severity)} <span>${esc(c.region || "")}</span>
+      ${(c.outlets || []).length < 2 ? `<span class="ob limited" title="Fewer than two current outlets have reported on this recently">limited reporting</span>` : ""}
       <span class="viewing in-detail" data-viewing="${esc(c.id)}" hidden></span>${reportLink("conflict", c.id, c.name)}</div>
+    <div class="ai-note">Summarised by AI from the news sources below; <button class="linkish" data-about>how this works</button>.</div>
     ${statTiles(c)}
     <p class="summary">${esc(c.summary)}</p>
     ${figureList(c)}
     <h3>Who is involved</h3>
     ${sideBlock("A", "Side A")}${sideBlock("B", "Side B")}${sideBlock("other", "Mediators / others")}
     <h3>Consequences</h3>
-    <div class="cons">${(c.consequences || []).map(x => `<div class="con"><span class="cat">${esc(x.category)}</span><span>${esc(x.text)}${(x.affects || []).length ? ` <span style="opacity:.6">${x.affects.map(a => flag(norm(a))).join(" ")}</span>` : ""}</span></div>`).join("") || "<div class='empty'>none recorded</div>"}</div>
+    <div class="cons">${(c.consequences || []).map(x => `<div class="con"><span class="cat">${esc(x.category)}</span><span>${esc(x.text)}${(x.affects || []).length ? ` <span style="opacity:.6">${x.affects.map(a => flag(norm(a))).join(" ")}</span>` : ""}${citeMarks(x)}</span></div>`).join("") || "<div class='empty'>none recorded</div>"}</div>
     <h3>Latest developments</h3>
-    ${(c.developments || []).map(x => `<div class="dev" data-url="${esc((x.sources || [])[0] || "")}"${(x.sources || []).length ? ` tabindex="0" role="button"` : ""}><span class="date">${esc(x.date)}</span><span>${esc(x.text)}${(x.sources || []).map(u => ` <a href="${esc(u)}" target="_blank" title="open original">↗</a>`).join("")}</span></div>`).join("")}
+    ${(c.developments || []).map(x => `<div class="dev" data-url="${esc((x.sources || [])[0] || "")}"${(x.sources || []).length ? ` tabindex="0" role="button"` : ""}><span class="date">${esc(x.date)}</span><span>${esc(x.text)}${(x.sources || []).map(u => ` <a href="${esc(u)}" target="_blank" title="open original">↗</a>`).join("")}
+      <span class="trust">${checkedBadge(x.verified)}${outletsBadge(x.outlets)}${(x.outlets || []).map(o => partyOutletLabel(o, c)).join("")}</span></span></div>`).join("")}
     <h3>Reported attacks (7 days)</h3>
     ${conflictStrikes(c.id).map(st => `<div class="strike" data-id="${st.id}" tabindex="0" role="button">
       <span class="date">${esc(st.date.slice(5).replace("-", "/"))}</span><span class="w">${weaponSvg(st.weapon)}</span>
       <span class="body"><span class="route">${(st.attacker && st.attacker !== "unknown") ? esc(st.attacker) + " → " : st.origin_name ? esc(st.origin_name) + " → " : ""}${esc(st.target_name)}</span><span class="prec">${esc(st.target_precision)}</span><br>
-      <span class="meta">${esc(st.weapon)}${st.launched != null ? ` · ${st.launched} launched` : ""}${st.intercepted != null ? ` · ${st.intercepted} intercepted` : ""}${st.outcome ? ` · ${esc(st.outcome)}` : ""}</span></span>
+      <span class="meta">${esc(st.weapon)}${st.launched != null ? ` · ${st.launched} launched` : ""}${st.intercepted != null ? ` · ${st.intercepted} intercepted` : ""}${st.outcome ? ` · ${esc(st.outcome)}` : ""}</span>
+      <span class="trust">${checkedBadge(st.verified)}${outletsBadge(st.outlets)}${(st.outlets || []).map(o => partyOutletLabel(o, c)).join("")}</span></span>
     </div>`).join("") || "<div class='empty'>none reported in the feeds</div>"}
     <h3>Sources</h3>
-    ${(c.sources || []).slice(0, 12).map(s => `<div class="src" tabindex="0" role="button" data-url="${esc(s.link)}" data-title="${esc(s.title)}" data-source="${esc(s.source)}">${esc(s.title)} <span class="s">— ${esc(s.source)}</span> <a href="${esc(s.link)}" target="_blank" title="open original">↗</a></div>`).join("")}
+    ${(c.sources || []).slice(0, 12).map(s => `<div class="src" tabindex="0" role="button" data-url="${esc(s.link)}" data-title="${esc(s.title)}" data-source="${esc(s.outlet || s.source)}">${esc(s.title)} <span class="s">— ${esc(s.outlet || s.source)}</span>${s.outlet ? partyOutletLabel(s.outlet, c) : `<span class="ob gone" title="A news source that is no longer used">old source</span>`} <a href="${esc(s.link)}" target="_blank" title="open original">↗</a></div>`).join("")}
   `;
   d.querySelector(".back").addEventListener("click", goBack);
   updateViewing();  d.querySelectorAll(".fig[data-url]").forEach(el => el.addEventListener("click", (ev) => {
@@ -972,6 +1000,40 @@ function goToReport(x) {
   if (view) { const [z, la, lo] = view.split("/").map(Number); if (!isNaN(lo)) map.flyTo({ center: [lo, la], zoom: z }); }
 }
 $("#reports-btn").addEventListener("click", () => { loadReports().then(openReports); });
+
+/* ---------- About: where the information comes from and how it is checked ---------- */
+function openAbout() {
+  const r = $("#reader"); readerSeq++;
+  $("#list").hidden = true; $("#detail").hidden = true; $("#list-tools").hidden = true; r.hidden = false; readerOpen = true; reveal(r);
+  if (isMobile()) setSheet("full");
+  $("#panel").scrollTop = 0;
+  const outlets = Object.entries((STATE && STATE.meta.outlets) || {});
+  r.innerHTML = `<button class="back">← back</button>
+    <h2>How this works</h2>
+    <div class="about">
+      <p>Conflict Map reads a small set of established news outlets every 30 minutes. An AI model running on our own machine turns those reports into the conflicts, parties, developments and attacks you see here. It is a news digest, not an intelligence product. Don't rely on it for safety decisions.</p>
+      <h3>Sources</h3>
+      <p>Only outlets with strong editorial standards and a public corrections record, whose articles we can read in full:</p>
+      <ul class="outlets">${outlets.map(([k, v]) => `<li><b>${esc(k)}</b> <span>${esc(v.note)}</span></li>`).join("")}</ul>
+      <p>We deliberately don't use state-controlled or partisan outlets, outlets tied to one side of a conflict they cover, aggregators, or sites whose articles we can't read to check.</p>
+      <h3>How claims are checked</h3>
+      <ul>
+        <li><span class="vb ok">✓ checked</span> Every new attack and development is re-read against the full text of the article it cites. If the article doesn't say it (a different place, attacker, date or number), it is thrown away.</li>
+        <li><span class="vb warn">not checked</span> The article couldn't be read (paywall or blocked), so the claim rests on the headline and summary alone.</li>
+        <li><span class="ob multi">3 outlets</span> <span class="ob one">single source</span> How many independent outlets have reported the same thing.</li>
+        <li><span class="po">United States outlet</span> The outlet is based in a country that is itself a party to that conflict: weigh its claims accordingly.</li>
+        <li><span class="bg">background</span> A party or consequence the AI knows from background knowledge rather than from a cited article.</li>
+        <li><span class="ob limited">limited reporting</span> Fewer than two outlets have covered this conflict recently.</li>
+        <li>Casualty and displacement figures are quoted word for word from the article, with who reported them, and marked when the number comes from one of the warring sides.</li>
+      </ul>
+      <h3>Automatic layers</h3>
+      <p>News heat, incidents and local news come from GDELT, which places news on the map by machine: useful for spotting activity, often wrong in the detail. Military aircraft and ships are public transponder data, shown at least 20 minutes late, and only for those that broadcast.</p>
+      <h3>Found a mistake?</h3>
+      <p>Use <b>⚑ Report a problem</b> on the item. Reports go straight to the maintainer. You can also join the <a href="https://discord.gg/GUFgYFJxr" target="_blank" rel="noopener">Discord</a>.</p>
+    </div>`;
+  r.querySelector(".back").addEventListener("click", closeReader);
+}
+document.addEventListener("click", (e) => { if (e.target.closest("[data-about]")) { e.preventDefault(); openAbout(); } });
 
 /* back from a conflict: to the country view it was opened from, else to the list */
 function goBack() { if (backCountry) selectCountry(backCountry); else select(null); }
@@ -1404,7 +1466,8 @@ function strikeHtml(p) {
   const who = p.attacker && p.attacker !== "unknown" ? p.attacker : (p.origin_name || "");
   return `<b>${esc(who ? who + " → " : "")}${esc(p.target_name)}</b> <span style="opacity:.6">${esc(p.target_precision)}</span><br>` +
     `${esc(p.date)} · ${esc(p.weapon)}${p.launched != null && p.launched !== "" ? ` · ${p.launched} launched` : ""}${p.intercepted != null && p.intercepted !== "" ? ` · ${p.intercepted} intercepted` : ""}` +
-    (p.outcome ? `<br>${esc(p.outcome)}` : "") + (p.source ? `<br><span style="opacity:.6">${esc(p.source)}</span>` : "");
+    (p.outcome ? `<br>${esc(p.outcome)}` : "") + (p.source ? `<br><span style="opacity:.6">${esc(p.outlet || p.source)}</span>` : "") +
+    `<br><span class="trust">${checkedBadge(p.verified === "" || p.verified == null ? undefined : +p.verified)}${outletsBadge(typeof p.outlets === "string" ? JSON.parse(p.outlets || "[]") : p.outlets)}</span>`;
 }
 
 function renderStrikes() {

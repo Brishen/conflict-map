@@ -36,75 +36,72 @@ AIRCRAFT_SOURCES = [   # tried in order; both speak the readsb JSON format
 # a source that fails is skipped for this long before it is tried again (403/429 back off longer)
 AIRCRAFT_BACKOFF_SECONDS = int(os.environ.get("AIRCRAFT_BACKOFF_SECONDS", "900"))
 
+# Only outlets with strong editorial standards and a public corrections record, whose articles the
+# pipeline can read in full: every attack and development is checked against the article text before it
+# is shown (app/verify.py). Dropped on purpose: state-controlled or partisan outlets, outlets tied to one
+# side of a conflict they cover, aggregators (Google News), analysis sites, and paywalled or bot-blocked
+# sites whose claims could not be checked (NYT, Washington Post, France 24, Sky, Reuters/AP via Google).
 FEEDS = {
-    # wires / global
     "BBC World": "https://feeds.bbci.co.uk/news/world/rss.xml",
     "BBC Middle East": "https://feeds.bbci.co.uk/news/world/middle_east/rss.xml",
     "BBC Africa": "https://feeds.bbci.co.uk/news/world/africa/rss.xml",
     "BBC Europe": "https://feeds.bbci.co.uk/news/world/europe/rss.xml",
     "BBC Asia": "https://feeds.bbci.co.uk/news/world/asia/rss.xml",
     "BBC Latin America": "https://feeds.bbci.co.uk/news/world/latin_america/rss.xml",
-    "Al Jazeera": "https://www.aljazeera.com/xml/rss/all.xml",
     "Guardian World": "https://www.theguardian.com/world/rss",
     "Guardian Ukraine": "https://www.theguardian.com/world/ukraine/rss",
     "Guardian Middle East": "https://www.theguardian.com/world/middleeast/rss",
     "Guardian Africa": "https://www.theguardian.com/world/africa/rss",
     "Guardian Americas": "https://www.theguardian.com/world/americas/rss",
-    "NYT World": "https://rss.nytimes.com/services/xml/rss/nyt/World.xml",
-    "Washington Post World": "https://feeds.washingtonpost.com/rss/world",
-    "CNN World": "http://rss.cnn.com/rss/edition_world.rss",
-    "NPR World": "https://feeds.npr.org/1004/rss.xml",
-    "CBC World": "https://www.cbc.ca/webfeed/rss/rss-world",
-    "Sky News World": "https://feeds.skynews.com/feeds/rss/world.xml",
-    "Independent World": "https://www.independent.co.uk/news/world/rss",
+    "Al Jazeera": "https://www.aljazeera.com/xml/rss/all.xml",
     "DW World": "https://rss.dw.com/rdf/rss-en-world",
     "DW Top": "https://rss.dw.com/rdf/rss-en-top",
-    "France 24": "https://www.france24.com/en/rss",
-    "France 24 Africa": "https://www.france24.com/en/africa/rss",
-    "France 24 Middle East": "https://www.france24.com/en/middle-east/rss",
-    "France 24 Europe": "https://www.france24.com/en/europe/rss",
-    "France 24 Asia": "https://www.france24.com/en/asia-pacific/rss",
-    "France 24 Americas": "https://www.france24.com/en/americas/rss",
+    "CBC World": "https://www.cbc.ca/webfeed/rss/rss-world",
+    "NPR World": "https://feeds.npr.org/1004/rss.xml",
+    "CNN World": "http://rss.cnn.com/rss/edition_world.rss",
+    "CBS World": "https://www.cbsnews.com/latest/rss/world",
+    "Independent World": "https://www.independent.co.uk/news/world/rss",
     "Euronews": "https://www.euronews.com/rss",
-    "Politico Europe": "https://www.politico.eu/feed/",
-    "Voice of America": "https://www.voanews.com/api/zq$omekvi_",
-    "UN News": "https://news.un.org/feed/subscribe/en/news/all/rss.xml",
-    "ReliefWeb": "https://reliefweb.int/updates/rss.xml",
-    # Google News keyword feeds (aggregate many outlets incl. Reuters/AP)
-    "Google News: conflict": "https://news.google.com/rss/search?q=airstrike+OR+missile+OR+%22drone+attack%22+OR+offensive+OR+ceasefire&hl=en-US&gl=US&ceid=US:en",
-    "Google News: Reuters": "https://news.google.com/rss/search?q=site:reuters.com+(war+OR+strikes+OR+attack)&hl=en-US&gl=US&ceid=US:en",
-    "Google News: Latin America": "https://news.google.com/rss/search?q=(Colombia+OR+Haiti+OR+Ecuador+OR+Mexico+OR+Venezuela)+(ELN+OR+guerrilla+OR+%22armed+group%22+OR+cartel+OR+gang+OR+dissidents+OR+militants)&hl=en-US&gl=US&ceid=US:en",
-    "Google News: AP": "https://news.google.com/rss/search?q=site:apnews.com+(war+OR+strikes+OR+attack)&hl=en-US&gl=US&ceid=US:en",
-    # regional
-    "Kyiv Independent": "https://kyivindependent.com/news-archive/rss/",
-    "Ukrainska Pravda": "https://www.pravda.com.ua/eng/rss/",
-    "TASS": "https://tass.com/rss/v2.xml",
-    "Times of Israel": "https://www.timesofisrael.com/feed/",
-    "Jerusalem Post": "https://www.jpost.com/rss/rssfeedsfrontpage.aspx",
-    "Haaretz": "https://www.haaretz.com/srv/haaretz-latest-headlines",
-    "Middle East Eye": "https://www.middleeasteye.net/rss",
-    "Al-Monitor": "https://www.al-monitor.com/rss",
-    "Anadolu": "https://www.aa.com.tr/en/rss/default?cat=world",
     "Africanews": "https://www.africanews.com/feed/rss",
-    "AllAfrica": "https://allafrica.com/tools/headlines/rdf/latest/headlines.rdf",
-    "Dawn": "https://www.dawn.com/feeds/home",
-    "The Hindu International": "https://www.thehindu.com/news/international/feeder/default.rss",
-    "Times of India World": "https://timesofindia.indiatimes.com/rssfeeds/296589292.cms",
-    "SCMP World": "https://www.scmp.com/rss/91/feed",
-    "Japan Times": "https://www.japantimes.co.jp/feed/",
-    "Yonhap": "https://en.yna.co.kr/RSS/news.xml",
-    "The Diplomat": "https://thediplomat.com/feed/",
-    "InSight Crime": "https://insightcrime.org/feed/",
-    "Colombia Reports": "https://colombiareports.com/feed/",
-    # defence / analysis
-    "Defense One": "https://www.defenseone.com/rss/all/",
-    "Breaking Defense": "https://breakingdefense.com/feed/",
-    "The War Zone": "https://www.twz.com/feed",
-    "War on the Rocks": "https://warontherocks.com/feed/",
-    "Long War Journal": "https://www.longwarjournal.org/feed",
-    "Crisis Group": "https://www.crisisgroup.org/rss",
+    # UN / humanitarian: casualty, displacement and access reporting
+    "UN News": "https://news.un.org/feed/subscribe/en/news/all/rss.xml",
+    "OHCHR": "https://www.ohchr.org/en/rss.xml",
+    "ReliefWeb": "https://reliefweb.int/updates/rss.xml",
+    "ICRC": "https://www.icrc.org/en/rss/news",
+    # open-source verification
     "Bellingcat": "https://www.bellingcat.com/feed/",
 }
+
+# Who publishes each feed. "country" is used to label an outlet from a country that is itself a party to
+# the conflict being shown (a US outlet on a US conflict); "note" explains the outlet in the About panel.
+OUTLETS = {
+    "BBC": {"feeds": "BBC ", "country": "GBR", "note": "UK public broadcaster"},
+    "The Guardian": {"feeds": "Guardian ", "country": "GBR", "note": "UK newspaper"},
+    "Al Jazeera": {"feeds": "Al Jazeera", "country": "QAT", "note": "Qatari state-funded broadcaster"},
+    "DW": {"feeds": "DW ", "country": "DEU", "note": "German public broadcaster"},
+    "CBC": {"feeds": "CBC ", "country": "CAN", "note": "Canadian public broadcaster"},
+    "NPR": {"feeds": "NPR ", "country": "USA", "note": "US public radio"},
+    "CNN": {"feeds": "CNN ", "country": "USA", "note": "US broadcaster"},
+    "CBS News": {"feeds": "CBS ", "country": "USA", "note": "US broadcaster"},
+    "The Independent": {"feeds": "Independent ", "country": "GBR", "note": "UK newspaper"},
+    "Euronews": {"feeds": "Euronews", "country": None, "note": "pan-European broadcaster"},
+    "Africanews": {"feeds": "Africanews", "country": None, "note": "pan-African broadcaster (Euronews group)"},
+    "UN News": {"feeds": "UN News", "country": None, "note": "United Nations news service"},
+    "OHCHR": {"feeds": "OHCHR", "country": None, "note": "UN human rights office"},
+    "ReliefWeb": {"feeds": "ReliefWeb", "country": None, "note": "UN OCHA humanitarian reports"},
+    "ICRC": {"feeds": "ICRC", "country": None, "note": "International Committee of the Red Cross"},
+    "Bellingcat": {"feeds": "Bellingcat", "country": "NLD", "note": "open-source investigators"},
+}
+
+
+def outlet_of(feed: str | None) -> str | None:
+    """Feed name ("BBC Middle East") -> outlet ("BBC"); None for a feed no longer used."""
+    for name, o in OUTLETS.items():
+        prefix = o["feeds"]         # "BBC " matches every BBC desk; "Al Jazeera" only that exact feed
+        if feed == prefix.strip() or (prefix.endswith(" ") and (feed or "").startswith(prefix)):
+            return name
+    return None
+
 
 # Articles whose title+summary match none of these never reach the LLM (processed=2).
 RELEVANCE_TERMS = [

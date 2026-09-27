@@ -7,8 +7,8 @@ from datetime import datetime, timezone
 
 import httpx
 
-from . import geo
-from .config import ARTICLES_PER_BATCH, LLM_BASE, LLM_MODEL, LLM_TIMEOUT
+from . import geo, verify
+from .config import ARTICLES_PER_BATCH, LLM_BASE, LLM_MODEL, LLM_TIMEOUT, outlet_of
 from .db import all_conflicts, db, set_state, upsert_conflict
 
 log = logging.getLogger("extract")
@@ -38,10 +38,12 @@ Each conflict object:
   "parties": [
     {{"name": "Country or armed group", "country": "ISO3 code or null for non-state actors",
       "side": "A" | "B" | "other" (a supporter ALWAYS gets the side it supports; "other" is only for mediators and neutral parties), "role": "combatant" | "supporter" | "mediator" | "target",
-      "note": "one short phrase, e.g. 'supplies drones', 'hosting talks'"}}
+      "note": "one short phrase, e.g. 'supplies drones', 'hosting talks'",
+      "article_ids": [ids from this batch that state this party's involvement, or [] when none do]}}
   ],
   "consequences": [
-    {{"category": one of {CONSEQUENCE_CATEGORIES}, "text": "one concise factual sentence", "affects": ["ISO3", ...] }}
+    {{"category": one of {CONSEQUENCE_CATEGORIES}, "text": "one concise factual sentence", "affects": ["ISO3", ...],
+      "article_ids": [ids from this batch that state it, or [] when none do]}}
   ],
   "developments": [
     {{"date": "YYYY-MM-DD", "text": "one sentence", "article_ids": [integer ids from this batch, always cite at least one]}}
@@ -61,8 +63,11 @@ Rules:
 - Parties: list the direct combatants first. A "supporter" must provide material support to one side (arms, money, troops, bases, intelligence). A country that merely comments, sanctions, hosts talks or denies a visa is NOT a supporter; use "mediator" only for active negotiation hosts. Include supporters when the news or well-established public knowledge supports it (e.g. USA/EU states arming Ukraine, Iran arming the Houthis). Use ISO 3166-1 alpha-3 codes (e.g. UKR, RUS, ISR, PSE, IRN, USA, GBR, SDN, YEM, COD). Non-state actors get "country": null but still belong to a side.
 - Keep records COMPLETE on every update: return the full merged party list, the full consequence list (keep prior items still true, add new ones, drop stale ones), and the 6 most recent developments (prior ones plus new ones).
 - Be factual and neutral. Cite the article ids that support each development. Never invent developments not in the batch.
+- Accuracy matters more than completeness: every development and strike is later checked word for word against the full article it cites, and anything the article does not say is thrown away. Only state what the cited item says; never add numbers, places, attackers or dates it does not give.
+- Cite article ids for parties and consequences whenever an item in this batch states them; use [] only for well-established background (it is then shown to readers as background, not as reported).
 - Strikes = ANY located attack reported in THIS batch (never from memory): airstrikes, missiles, drones, artillery/shelling, ground assaults on towns, bombings/IEDs, naval attacks, massacres. This explicitly includes INTERNAL conflicts (RSF shelling El Fasher, IDF strikes on Gaza City, M23 taking Goma, Al-Qaeda attacking a Malian base) - the target is the place hit, the attacker is the party, and origin may be null. One entry per named target place per attack; if an article lists several places hit, emit one entry per place. If the target is only given as a region, put that in "place" and set lat/lon to your best estimate. For cross-border launches give the origin region ("Crimea", "Iran") with ISO3 and rough lat/lon. Use exact numbers from the article for launched/intercepted, else null. Omit "strikes" only if the batch reports no attacks for that conflict.
 - Dates: use the article's date. Today is {{today}}.
+- REQUIRED: every development and every strike carries "article_ids" with the [n] ids of the news items above that report it. A development or strike without article_ids is discarded unread, so never leave them out.
 - Output valid JSON only, no markdown fences, no commentary. Use COMPACT JSON (no indentation or line breaks) - the output must stay short."""
 
 
@@ -283,8 +288,10 @@ def place_ends(target: dict, origin: dict | None, attacker: str | None = None) -
             origin["lat"], origin["lon"] = near
 
 
-def _store_strikes(con, conflict_id: str, strikes: list, art: dict, conflict: dict | None = None) -> int:
+def _store_strikes(con, conflict_id: str, strikes: list, art: dict, conflict: dict | None = None,
+                   verdicts: dict | None = None) -> int:
     n = 0
+    verdicts = verdicts or {}
     conflict = conflict or {"name": conflict_id.replace("-", " ")}
     for st in strikes:
         if not isinstance(st, dict):
@@ -302,6 +309,13 @@ def _store_strikes(con, conflict_id: str, strikes: list, art: dict, conflict: di
             if aid in art and _cites_ok(conflict, art[aid]):
                 src = art[aid]
                 break
+        if not src:
+            continue                        # an attack with no article behind it is never shown
+        v = verdicts.get(id(st))
+        if v is False:
+            continue                        # the article does not say this
+        verified = 1 if v else 0
+        outlet = outlet_of(src["source"])
         date = str(st.get("date") or "")[:10]
         if not re.match(r"^\d{4}-\d{2}-\d{2}$", date):
             continue
@@ -321,10 +335,62 @@ def _store_strikes(con, conflict_id: str, strikes: list, art: dict, conflict: di
              origin and origin["country"], origin and origin["precision"],
              target["name"], target["lat"], target["lon"], target["country"], target["precision"],
              _int(st.get("launched")), _int(st.get("intercepted")), (st.get("outcome") or "")[:300],
-             src and src["link"], src and src["title"], src and src["source"], int(time.time()),
+             src["link"], src["title"], src["source"], int(time.time()),
              (st.get("attacker") or "")[:80] or None))
+        if cur.rowcount:
+            con.execute("UPDATE strikes SET verified=?, outlets=? WHERE id=?", (verified, json.dumps([outlet] if outlet else []), cur.lastrowid))
+        else:
+            # already stored from another report: count this outlet as corroboration, keep the best verification
+            row = con.execute("SELECT id, outlets, verified FROM strikes WHERE conflict_id=? AND date=? AND weapon=? AND target_name=?",
+                              (conflict_id, date, weapon, target["name"])).fetchone()
+            if row:
+                outs = json.loads(row["outlets"] or "[]")
+                if outlet and outlet not in outs:
+                    outs.append(outlet)
+                con.execute("UPDATE strikes SET outlets=?, verified=MAX(COALESCE(verified, 0), ?) WHERE id=?",
+                            (json.dumps(outs), verified, row["id"]))
         n += cur.rowcount
     return n
+
+
+def _verify_batch(conflicts: list[dict], art: dict) -> dict:
+    """Check every new development and strike against the full text of the articles it cites."""
+    claims: dict[str, list] = {}
+    for c in conflicts:
+        for d in c.get("developments") or []:
+            for aid in d.get("article_ids") or []:
+                a = art.get(aid)
+                if a and _cites_ok(c, a):
+                    claims.setdefault(a["link"], []).append((d, verify.development_claim(d)))
+        for st in c.get("strikes") or []:
+            if not isinstance(st, dict):
+                continue
+            a = next((art[aid] for aid in st.get("article_ids") or [] if aid in art and _cites_ok(c, art[aid])), None)
+            if a:
+                claims.setdefault(a["link"], []).append((st, verify.strike_claim(st)))
+    return verify.check(claims)
+
+
+def _cite_items(c: dict, prev: dict, art: dict) -> None:
+    """Parties and consequences carry the links of the articles that state them. The model only sees this
+    batch, so earlier citations are carried over by name / text; anything never cited is background."""
+    def links(item):
+        return [art[a]["link"] for a in item.pop("article_ids", None) or [] if a in art and _cites_ok(c, art[a])]
+    pkey = lambda p: _name_key(p.get("name"))
+    ckey = lambda x: _name_key(x.get("text"))[:60]
+    for field, key in (("parties", pkey), ("consequences", ckey)):
+        before = {key(x): x for x in prev.get(field) or [] if isinstance(x, dict)}
+        for x in c.get(field) or []:
+            if not isinstance(x, dict):
+                continue
+            got = links(x)
+            old = before.get(key(x), {})
+            srcs = list(dict.fromkeys(got + (old.get("sources") or [])))[:3]
+            if srcs:
+                x["sources"] = srcs
+                x.pop("basis", None)
+            else:
+                x["basis"] = "background"
 
 
 SEA = re.compile(r"\b(sea|strait|gulf|ocean|waters|channel|bay|coast|maritime|canal|offshore|island)s?\b", re.I)
@@ -404,12 +470,24 @@ def run_batch(limit: int = ARTICLES_PER_BATCH) -> int:
                 log.info("model filed %s under a new id %s; keeping %s", match["id"], c["id"], match["id"])
                 c["id"] = match["id"]
     art = {r["id"]: dict(r) for r in rows}
+    verdicts = _verify_batch(conflicts, art)
     n_strikes = 0
     with db() as con:
         for c in conflicts:
             prev = by_id.get(c["id"], {})
             fix_epicenter(c)
             fix_supporter_sides(c)
+            # developments the full article does not support are dropped before anything else sees them
+            new_devs = []
+            for d in c.get("developments", []):
+                v = verdicts.get(id(d), "uncited")
+                if v is False:
+                    continue
+                if v != "uncited":
+                    d["verified"] = 1 if v else 0
+                new_devs.append(d)
+            c["developments"] = new_devs
+            _cite_items(c, prev, art)
             # sources: keep unique links from cited article ids
             sources = {s["link"]: s for s in prev.get("sources", [])}
             for d in c.get("developments", []):
@@ -429,26 +507,28 @@ def run_batch(limit: int = ARTICLES_PER_BATCH) -> int:
             prev_src = {}
             for d in prev.get("developments", []):
                 if d.get("sources"):
-                    prev_src.setdefault(dkey(d), d["sources"])
+                    prev_src.setdefault(dkey(d), d)
             seen, devs = {}, []
             for d in sorted(c.get("developments", []) + prev.get("developments", []), key=lambda d: d.get("date", ""), reverse=True):
                 k = dkey(d)
                 if not k:
                     continue
                 if not d.get("sources") and k in prev_src:
-                    d["sources"] = prev_src[k]
+                    d["sources"] = prev_src[k]["sources"]
+                    if "verified" in prev_src[k]:
+                        d["verified"] = prev_src[k]["verified"]
                 if k in seen:
                     if d.get("sources") and not seen[k].get("sources"):
                         seen[k]["sources"] = d["sources"]
                     continue
                 seen[k] = d
                 devs.append(d)
-            c["developments"] = devs[:8]
+            c["developments"] = [d for d in devs if d.get("sources")][:8]      # nothing without a source is shown
             c["last_seen"] = int(time.time())
             c["first_seen"] = prev.get("first_seen", int(time.time()))
             strikes = c.pop("strikes", None) or []
             upsert_conflict(con, c["id"], c)
-            n_strikes += _store_strikes(con, c["id"], strikes, art, c)
+            n_strikes += _store_strikes(con, c["id"], strikes, art, c, verdicts)
         con.executemany("UPDATE articles SET processed=1 WHERE id=?", [(r["id"],) for r in rows])
         set_state(con, "last_extract", {"at": int(time.time()), "articles": len(rows),
                                         "conflicts": len(conflicts), "strikes": n_strikes,

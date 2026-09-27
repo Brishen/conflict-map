@@ -15,7 +15,7 @@ from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 from . import aircraft, countries, ships, gdelt, livetv, pipeline, reader
-from .config import AIRCRAFT_ENABLED, DATA_DIR, GDELT_WINDOW_HOURS, REFRESH_MINUTES, SERVE_ONLY, STATIC_DIR
+from .config import OUTLETS, outlet_of, AIRCRAFT_ENABLED, DATA_DIR, GDELT_WINDOW_HOURS, REFRESH_MINUTES, SERVE_ONLY, STATIC_DIR
 from .db import all_conflicts, db, get_state, store_report
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
@@ -79,6 +79,7 @@ def build_state(hours: int, strike_days: int) -> dict:
             "SELECT conflict_id, SUM(date > ?), SUM(date > ? AND date <= ?) FROM strikes GROUP BY conflict_id", (d7, d14, d7))}
         strikes = [dict(r) for r in con.execute(
             "SELECT * FROM strikes WHERE date >= ? ORDER BY date DESC, id DESC LIMIT 600", (since,))]
+        link_source = {r[0]: r[1] for r in con.execute("SELECT link, source FROM articles")}
         meta = {
             "last_refresh": get_state(con, "last_refresh"),
             "last_extract": get_state(con, "last_extract"),
@@ -88,6 +89,7 @@ def build_state(hours: int, strike_days: int) -> dict:
             "sources": con.execute("SELECT COUNT(DISTINCT source) FROM articles WHERE published > strftime('%s','now') - 7*86400").fetchone()[0],
             "busy": _lock.locked(),
             "serve_only": SERVE_ONLY,
+            "outlets": {k: {"country": v["country"], "note": v["note"]} for k, v in OUTLETS.items()},
             "attacks_since": con.execute("SELECT MIN(created) FROM strikes").fetchone()[0],
             "now": int(time.time()),
         }
@@ -110,8 +112,17 @@ def build_state(hours: int, strike_days: int) -> dict:
     for i in agg["incidents"]:
         rec = tbl["fips"].get(i["cc"])
         incidents.append({**i, "iso3": rec["iso3"] if rec else None})
+    for st in strikes:
+        st["outlet"] = outlet_of(st.get("source"))
+        st["outlets"] = json.loads(st["outlets"]) if st.get("outlets") else ([st["outlet"]] if st["outlet"] else [])
     for c in conflicts:
         c["activity"] = activity.get(c["id"], {"attacks_7d": 0, "attacks_prev_7d": 0})
+        # which outlet published each source, and how many distinct outlets back each development
+        for s_ in c.get("sources") or []:
+            s_["outlet"] = outlet_of(s_.get("source"))
+        for d in c.get("developments") or []:
+            d["outlets"] = sorted({o for o in (outlet_of(link_source.get(u)) for u in d.get("sources") or []) if o})
+        c["outlets"] = sorted({s_["outlet"] for s_ in c.get("sources") or [] if s_["outlet"]})
     conflicts.sort(key=lambda c: (-(c.get("severity") or 0), -(c.get("last_seen") or 0)))
     return {
         "meta": meta,

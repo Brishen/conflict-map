@@ -173,6 +173,28 @@ body.resizing #map { pointer-events: none; }
 .rep-actions { display: flex; gap: 6px; margin-top: 8px; }
 .rep-actions button { font-size: 11.5px; padding: 3px 8px; min-height: 0; }
 
+/* trust signals */
+.trust { display: inline-flex; flex-wrap: wrap; gap: 4px; margin-left: 4px; vertical-align: 1px; }
+.vb, .ob, .po, .bg { display: inline-block; font-size: 10px; line-height: 1.5; padding: 0 5px; border-radius: 3px; border: 1px solid var(--border); color: var(--muted); white-space: nowrap; font-style: normal; }
+.vb.ok { color: #6fcf6f; border-color: rgba(111,207,111,.35); }
+.vb.warn { color: #f2c14e; border-color: rgba(242,193,78,.35); }
+.ob.multi { color: var(--ink-2); }
+.ob.one, .ob.gone { color: var(--muted); }
+.ob.limited { color: #f2c14e; border-color: rgba(242,193,78,.35); margin-left: 6px; }
+.po { color: #c9a0ff; border-color: rgba(201,160,255,.35); margin-left: 4px; }
+.bg { color: var(--muted); border-style: dashed; margin-left: 4px; }
+a.cite { color: var(--muted); text-decoration: none; }
+a.cite:hover { color: var(--ink); }
+.ai-note { font-size: 11.5px; color: var(--muted); margin: -4px 0 8px; }
+.linkish { background: none; border: none; padding: 0; min-height: 0; color: var(--ink-2); text-decoration: underline; font-size: inherit; cursor: pointer; }
+.about h3 { font-size: 11px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin: 16px 0 6px; }
+.about p, .about li { color: var(--ink-2); line-height: 1.55; font-size: 13px; }
+.about ul { padding-left: 18px; margin: 6px 0 10px; display: flex; flex-direction: column; gap: 6px; }
+.about ul.outlets { padding-left: 0; list-style: none; gap: 3px; }
+.about ul.outlets span { color: var(--muted); font-size: 12px; }
+.about a { color: var(--ink-2); }
+#about-btn { white-space: nowrap; }
+
 /* country view */
 .rel-key { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 11.5px; color: var(--ink-2); margin: 2px 0 10px; }
 .rel-key i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 5px; vertical-align: -1px; }
@@ -386,3 +408,5 @@ body.legend-open #legend { display: flex; }
 }
 @media (min-width: 901px) and (max-width: 1100px) { .brand .gh { padding: 4px 6px; } .brand .gh span { display: none; } .brand .sub { display: none; } }
 @media (max-width: 900px) { #detail .ccard { margin: 0 -16px; } }
+.menu-about { align-self: flex-start; font-size: 12px; }
+@media (max-width: 900px) { #about-btn { display: none; } }

@@ -8,6 +8,7 @@ import time
 from datetime import datetime, timezone
 
 from . import extract, reader
+from .config import outlet_of
 from .db import all_conflicts, db, upsert_conflict
 
 log = logging.getLogger("stats")
@@ -44,8 +45,8 @@ def _related_articles(c: dict, con, days: int = 21, limit: int = 60) -> list:
     num = "(title || ' ' || summary) GLOB '*[0-9][0-9][0-9]*'"            # figures need numbers
     rows = con.execute(
         f"SELECT id, link, source, title, summary, published FROM articles WHERE published >= ? AND ({like}) AND {num} "
-        "ORDER BY published DESC LIMIT ?", [cutoff, *[f"%{t}%" for t in terms], limit]).fetchall()
-    return [dict(r) for r in rows]
+        "ORDER BY published DESC LIMIT ?", [cutoff, *[f"%{t}%" for t in terms], limit * 3]).fetchall()
+    return [dict(r) for r in rows if outlet_of(r["source"])][:limit]        # current outlets only
 
 
 TOLL = re.compile(r"\b(killed|dead|deaths?|death toll|casualt|wounded|injured|displaced|refugees?|fled|hostages?|"

@@ -73,6 +73,10 @@ def connect() -> sqlite3.Connection:
     cols = {r[1] for r in con.execute("PRAGMA table_info(strikes)")}
     if "attacker" not in cols:
         con.execute("ALTER TABLE strikes ADD COLUMN attacker TEXT")
+    if "verified" not in cols:      # 1 = checked against the article, 0 = article unreadable, NULL = from before checks
+        con.execute("ALTER TABLE strikes ADD COLUMN verified INTEGER")
+    if "outlets" not in cols:       # JSON list of the outlets that reported this attack
+        con.execute("ALTER TABLE strikes ADD COLUMN outlets TEXT")
     return con
 
 
