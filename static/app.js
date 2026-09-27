@@ -1839,7 +1839,7 @@ function renderCyberList() {
       <div class="cy-note">Posted by the gangs on their leak sites (via ransomware.live). A claim is not a confirmed breach, and victims aren't named here.</div>` : `<div class="empty small">No claims loaded yet.</div>`}</div>
     <h3 class="gh3">Attacks between countries, last 24 h</h3>
     <div class="cy-block">${!d.attacks_enabled ? `<div class="cy-note">Not switched on yet: this layer needs a Cloudflare Radar token on the server.</div>` :
-      pairs.slice(0, 12).map(p => `<div class="cy-pair"><span class="sw" style="background:${CYBER_COLOR[p.layer]}"></span>${cyberFlag(p.from)} → ${cyberFlag(p.to)}<span class="v">${p.share}%</span></div>`).join("") +
+      pairs.slice(0, 12).map(p => `<div class="cy-pair"><span class="sw" style="background:${CYBER_COLOR[p.layer]}"></span>${p.from === p.to ? `within ${cyberFlag(p.to)}` : `${cyberFlag(p.from)} → ${cyberFlag(p.to)}`}<span class="v">${p.share}%</span></div>`).join("") +
       `<div class="cy-note">Share of the attack traffic Cloudflare saw (<span style="color:${CYBER_COLOR.l3}">DDoS</span>, <span style="color:${CYBER_COLOR.l7}">web attacks</span>). Updated ${esc(ago(d.attacks.updated))}.</div>`}</div>
     <h3 class="gh3">Internet outages, last 24 h</h3>
     <div class="cy-block">${outs.slice(0, 10).map(o => `<div class="cy-pair"><span class="sw" style="background:${CYBER_COLOR.outage};opacity:${0.35 + o.level * 0.2}"></span>${cyberFlag(o.iso3)}<span class="v" title="IODA outage score; signals: ${esc(o.signals.join(", "))}">${["", "minor", "moderate", "severe"][o.level]}</span></div>`).join("")
